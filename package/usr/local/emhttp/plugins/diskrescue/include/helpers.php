@@ -7,12 +7,36 @@
  */
 
 define('DR_PLUGIN', 'diskrescue');
-define('DR_BASE', '/usr/local/emhttp/plugins/' . DR_PLUGIN);
-define('DR_BOOT', '/boot/config/plugins/' . DR_PLUGIN);
+// 路径都可用环境变量覆盖：插件用默认值，Docker 容器用 /opt 与 /data
+define('DR_BASE', getenv('DR_BASE') ?: '/usr/local/emhttp/plugins/diskrescue');
+define('DR_BOOT', getenv('DR_DATA_DIR') ?: '/boot/config/plugins/diskrescue');
 define('DR_STATE', DR_BOOT . '/state');
-define('DR_TMP', '/tmp/diskrescue');
+define('DR_TMP', getenv('DR_TMP') ?: '/tmp/diskrescue');
 define('DR_RUNNING', DR_TMP . '/running');
 define('DR_CFG', DR_BOOT . '/diskrescue.cfg');
+
+/** 静态资源前缀：插件里是 /plugins/diskrescue，容器里是空（同源根路径） */
+function dr_asset_base() {
+    $v = getenv('DR_ASSET_BASE');
+    if ($v === false) {
+        return '/plugins/' . DR_PLUGIN;
+    }
+    return rtrim($v, '/');
+}
+
+/** AJAX 接口地址：插件里是 <asset>/include/api.php，容器里是 /api.php */
+function dr_api_url() {
+    $v = getenv('DR_API_URL');
+    if ($v !== false && $v !== '') {
+        return $v;
+    }
+    return dr_asset_base() . '/include/api.php';
+}
+
+/** 配置/日志目录（页面上展示用） */
+function dr_data_dir() {
+    return DR_BOOT;
+}
 
 /**
  * 在 webGUI（php-fpm）里 PATH 可能很精简，统一用绝对路径调用外部命令。
@@ -377,6 +401,11 @@ function dr_json($data, $code = 200) {
  */
 function dr_csrf_token() {
     global $csrf_token, $var;
+    // 容器里没有 webGUI，用环境变量提供固定 token（留空则关闭校验）
+    $env = getenv('DR_CSRF_TOKEN');
+    if ($env !== false && $env !== '') {
+        return $env;
+    }
     if (isset($csrf_token) && is_string($csrf_token) && $csrf_token !== '') {
         return $csrf_token;
     }

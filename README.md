@@ -41,6 +41,18 @@ https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg
 > 如果只有 jsDelivr 失败而 GitHub 加速能通，通常是本机 IPv6 不通导致
 > wget 卡在 AAAA 记录上；用上表里纯 IPv4 的 `ghfast.top` 即可。
 
+### 不想装插件？用 Docker
+
+```bash
+docker run -d --name diskrescue --restart unless-stopped \
+  -p 8080:80 \
+  -v /mnt:/mnt \
+  -v /srv/diskrescue:/data \
+  ghcr.io/kryo0o/diskrescue:latest
+```
+
+然后打开 `http://<NAS-IP>:8080/`。详见 [第 3.5 节](#35-docker部署)。
+
 ---
 
 ## 1. 为什么不是简单把脚本塞进 .plg
@@ -182,6 +194,87 @@ python build.py --base-url https://blog.kryoo.de/unraid-disk-rescue
 
 > 注意：仓库根目录的 `diskrescue.plg.in` 是**模板**（含 `__MD5__` 占位符），
 > 不是可安装文件；安装请用 `dist/diskrescue.plg`。
+
+### 3.5 Docker 部署
+
+镜像由 GitHub Actions 自动构建（amd64 / arm64），发布在 GHCR：
+
+```
+ghcr.io/kryo0o/diskrescue:latest
+```
+
+**一条命令启动**
+
+```bash
+docker run -d --name diskrescue --restart unless-stopped \
+  -p 8080:80 \
+  -v /mnt:/mnt \
+  -v /srv/diskrescue:/data \
+  ghcr.io/kryo0o/diskrescue:latest
+```
+
+打开 `http://<NAS-IP>:8080/`，用法与插件页面完全一致（同一套 UI 和脚本）。
+
+**docker compose**
+
+```yaml
+services:
+  diskrescue:
+    image: ghcr.io/kryo0o/diskrescue:latest
+    container_name: diskrescue
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      TZ: Asia/Shanghai
+      # DR_USER: admin
+      # DR_PASS: "换成你的密码"
+    volumes:
+      - /mnt:/mnt
+      - ./diskrescue-data:/data
+```
+
+```bash
+docker compose up -d
+```
+
+**卷与目录**
+
+| 容器内 | 用途 | 建议 |
+| --- | --- | --- |
+| `/mnt` | 要被抢救/写入的磁盘 | 必须挂载，否则页面里选不到盘 |
+| `/data` | 配置、日志、状态 | 持久化到宿主机目录 |
+
+**环境变量**
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `TZ` | `Asia/Shanghai` | 时区（日志时间） |
+| `DR_USER` / `DR_PASS` | 空 | 设置后启用 HTTP Basic 认证 |
+| `DR_DATA_DIR` | `/data` | 配置与日志目录（需与卷对应） |
+| `DR_CSRF_TOKEN` | 空 | 非空时校验 CSRF，一般不用设 |
+| `APACHE_RUN_USER` | `root` | 容器内运行用户；读 `/mnt/diskX` 需要 root |
+
+> **安全提示**：为了能像在 Unraid 上一样读写 `/mnt/diskX`，容器内默认以 root 运行，
+> 且页面本身没有登录。请只在可信内网暴露端口，或用 `DR_USER`/`DR_PASS` 开启认证。
+>
+> Docker 里访问 `/mnt/user` 会经过 FUSE，性能和兼容性都不如在宿主机上；
+> 抢救时优先直接选 `/mnt/disk1`、`/mnt/disk4` 这类磁盘路径。
+
+**升级镜像**
+
+```bash
+docker compose pull && docker compose up -d
+# 或
+docker pull ghcr.io/kryo0o/diskrescue:latest && docker rm -f diskrescue && ...重新 run...
+```
+
+**本地构建**
+
+```bash
+docker build -f docker/Dockerfile -t diskrescue:dev .
+docker run --rm -p 8080:80 -v /mnt:/mnt -v "$PWD/data:/data" diskrescue:dev
+```
 
 ---
 
