@@ -17,7 +17,7 @@ $action = isset($_GET['action']) ? (string)$_GET['action'] : '';
 if ($action === '' && isset($_POST['action'])) {
     $action = (string)$_POST['action'];
 }
-if (!preg_match('/^[a-z]+$/', $action)) {
+if (!preg_match('/^[a-z_]+$/', $action)) {
     dr_json(['ok' => false, 'error' => '未知操作'], 400);
 }
 
