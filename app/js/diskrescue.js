@@ -181,7 +181,7 @@
     $('#dr-src, #dr-dst, #dr-min-speed, #dr-speed-window, #dr-check, #dr-max-stall, ' +
       '#dr-hang-timeout, #dr-grace-factor, #dr-grace-max, #dr-grace-small').prop('disabled', on);
     $form.find('input[type=checkbox]').prop('disabled', on);
-    $('#dr-clear, #dr-clean-partial').prop('disabled', on);
+    $('#dr-clear, #dr-clean-partial, #dr-prune, #dr-prune-mb').prop('disabled', on);
     $runningTip.toggle(!!on);
   }
 
@@ -415,7 +415,32 @@
     });
   });
 
-  // 删除目标目录下本工具产生的未完成文件
+  // 清理“没转移成功”的空目录 / 只含未完成文件的小目录（先预览再执行）
+  $('#dr-prune').on('click', function () {
+    var dir = ($('#dr-dst').val() || '').trim();
+    if (!dir) { $note.text('请先填写目标文件夹'); return; }
+    var mb = parseInt($('#dr-prune-mb').val(), 10);
+    if (isNaN(mb) || mb < 0 || mb > 102400) { $note.text('大小阈值必须在 0~102400 MB 之间'); return; }
+
+    post({ action: 'prune_dirs', dir: dir, max_mb: mb, dry: 1 }, function (e, r) {
+      if (e || !r.ok) { $note.text(e || r.error || '预览失败'); return; }
+      if (!r.dirs) { $note.text('没有可清理的空/小目录'); return; }
+
+      var lines = r.sample.join('\n');
+      if (r.dirs > r.sample.length) lines += '\n…（共 ' + r.dirs + ' 个）';
+      var msg = '将删除 ' + r.dirs + ' 个目录';
+      if (r.files) msg += '、' + r.files + ' 个未完成文件';
+      msg += '（合计 ' + human(r.bytes) + '）\n\n' + lines;
+      msg += '\n\n只删除空目录和“只含 .partial 的小目录”，含正常文件的目录不会动。继续？';
+      if (!window.confirm(msg)) return;
+
+      post({ action: 'prune_dirs', dir: dir, max_mb: mb, dry: 0 }, function (e2, r2) {
+        if (e2 || !r2.ok) { $note.text(e2 || r2.error || '清理失败'); return; }
+        $note.text('已清理 ' + r2.dirs + ' 个目录、' + r2.files + ' 个未完成文件（' + human(r2.bytes) + '）');
+      });
+    });
+  });
+
   $('#dr-clean-partial').on('click', function () {
     var dir = ($('#dr-dst').val() || '').trim();
     if (!dir) { $note.text('请先填写目标文件夹'); return; }

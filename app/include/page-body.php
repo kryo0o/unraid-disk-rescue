@@ -53,6 +53,12 @@ $jsV    = @filemtime(__DIR__ . '/../js/diskrescue.js') ?: time();
     </div>
     <div class="dr-head-actions">
       <button type="button" class="dr-btn dr-btn-ghost" id="dr-reload" title="重新加载本页面">刷新</button>
+      <span class="dr-prune">
+        <input type="number" id="dr-prune-mb" min="0" max="102400" step="1" value="10"
+               title="只含未完成文件、且总大小小于该值的目录会被清理；0 = 只删空目录">
+        <span>MB 以下</span>
+        <button type="button" class="dr-btn dr-btn-ghost" id="dr-prune" <?=$running ? 'disabled' : ''?>>清理空/小目录</button>
+      </span>
       <button type="button" class="dr-btn dr-btn-ghost" id="dr-clean-partial" <?=$running ? 'disabled' : ''?>>清理 .partial</button>
       <button type="button" class="dr-btn dr-btn-ghost" id="dr-clear" <?=$running ? 'disabled' : ''?>>清空状态</button>
     </div>

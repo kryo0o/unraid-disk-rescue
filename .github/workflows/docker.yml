@@ -124,6 +124,41 @@ jobs:
           test -f /tmp/mnt/disk4/dst/a.txt    # 正常文件不能被误删
           echo "clean_partial ok"
 
+      - name: 清理空/小目录接口
+        run: |
+          set -e
+          D=/tmp/mnt/disk4/dst
+          mkdir -p "$D/emptyA" "$D/smallB" "$D/bigC" "$D/realD"
+          head -c 1M /dev/zero > "$D/smallB/x.partial"
+          head -c 20M /dev/zero > "$D/bigC/y.partial"
+          echo keep > "$D/realD/keep.txt"
+
+          echo "--- 预览（dry=1）---"
+          curl -sS -X POST \
+            --data-urlencode 'action=prune_dirs' \
+            --data-urlencode "dir=$D" \
+            --data-urlencode 'max_mb=10' \
+            --data-urlencode 'dry=1' \
+            http://127.0.0.1:18080/api.php | tee /tmp/prune1.json
+          grep -q '"dirs":2' /tmp/prune1.json
+          test -d "$D/emptyA"          # 预览不能真删
+          test -d "$D/smallB"
+
+          echo "--- 执行 ---"
+          curl -sS -X POST \
+            --data-urlencode 'action=prune_dirs' \
+            --data-urlencode "dir=$D" \
+            --data-urlencode 'max_mb=10' \
+            --data-urlencode 'dry=0' \
+            http://127.0.0.1:18080/api.php | tee /tmp/prune2.json
+          grep -q '"dirs":2' /tmp/prune2.json
+          grep -q '"files":1' /tmp/prune2.json
+          test ! -d "$D/emptyA"
+          test ! -d "$D/smallB"
+          test -d "$D/bigC"            # 超过阈值要保留
+          test -f "$D/realD/keep.txt"  # 正常小目录不能动
+          echo "prune_dirs ok"
+
       - name: 失败时输出容器日志
         if: failure()
         run: |

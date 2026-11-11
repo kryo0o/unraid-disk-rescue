@@ -527,6 +527,126 @@ if ($action === 'clean_partial') {
     dr_json(['ok' => true, 'removed' => $removed, 'bytes' => $bytes]);
 }
 
+// -------------------------------------------------------------- prune_dirs ----
+// 清理目标目录里“没转移成功”的目录：
+//   - 空目录
+//   - 只含未完成文件（*.partial / *.dr-meta.*）且总大小小于阈值的目录
+// 绝不删除含正常文件的目录。max_mb=0 表示只删空目录。
+if ($action === 'prune_dirs') {
+    if (!dr_csrf_ok()) {
+        dr_json(['ok' => false, 'error' => '会话校验失败，请刷新页面后重试'], 403);
+    }
+    $run = dr_run_info();
+    if ($run['alive']) {
+        dr_json(['ok' => false, 'error' => '任务运行中，请先停止']);
+    }
+    list($dir, $err) = dr_check_path(isset($_POST['dir']) ? $_POST['dir'] : '', true);
+    if ($err !== null) {
+        dr_json(['ok' => false, 'error' => '目标目录: ' . $err]);
+    }
+    $maxMb = isset($_POST['max_mb']) ? trim((string)$_POST['max_mb']) : '10';
+    if (!preg_match('/^\d{1,6}$/', $maxMb) || (int)$maxMb > 102400) {
+        dr_json(['ok' => false, 'error' => '大小阈值必须是 0~102400 MB（0 = 只删空目录）']);
+    }
+    $maxMb = (int)$maxMb;
+    $maxBytes = $maxMb * 1048576;
+    $dry = (isset($_POST['dry']) && (string)$_POST['dry'] === '1');
+
+    $isIncomplete = function ($name) {
+        return substr($name, -8) === '.partial' || strpos($name, '.dr-meta.') !== false;
+    };
+
+    @set_time_limit(120);
+
+    $dirs = [];
+    try {
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($it as $f) {
+            if ($f->isDir() && !$f->isLink()) {
+                $dirs[] = $f->getPathname();
+            }
+        }
+    } catch (Throwable $e) {
+        // 权限/坏目录：能扫多少算多少
+    }
+
+    $virtual = [];   // dry 模式下“将被删除”的目录，父目录要当作已空
+    $removed = [];
+    $files = 0;
+    $freed = 0;
+
+    foreach ($dirs as $p) {
+        $names = @scandir($p);
+        if (!is_array($names)) {
+            continue;
+        }
+        $hasSubdir = false;
+        $fs = [];
+        $bytes = 0;
+        $onlyIncomplete = true;
+
+        foreach ($names as $n) {
+            if ($n === '.' || $n === '..') {
+                continue;
+            }
+            $fp = $p . '/' . $n;
+            if (isset($virtual[$fp])) {
+                continue;
+            }
+            if (is_dir($fp) && !is_link($fp)) {
+                $hasSubdir = true;
+                break;
+            }
+            if (is_link($fp) || !is_file($fp) || !$isIncomplete($n)) {
+                $onlyIncomplete = false;
+                break;
+            }
+            $fs[] = $fp;
+            $bytes += (int)@filesize($fp);
+        }
+
+        if ($hasSubdir || !$onlyIncomplete) {
+            continue;
+        }
+        if ($fs) {
+            if ($maxMb === 0) {
+                continue;               // 0 = 只删空目录
+            }
+            if ($bytes >= $maxBytes) {
+                continue;               // 未完成数据达到阈值，留着方便续读
+            }
+        }
+
+        if ($dry) {
+            $virtual[$p] = true;
+        } else {
+            foreach ($fs as $fp) {
+                if (@unlink($fp)) {
+                    $files++;
+                }
+            }
+            if (!@rmdir($p)) {
+                continue;
+            }
+        }
+        $freed += $bytes;
+        $removed[] = ltrim(substr($p, strlen(rtrim($dir, '/'))), '/');
+    }
+
+    dr_json([
+        'ok'    => true,
+        'dry'   => $dry,
+        'dirs'  => count($removed),
+        'files' => $files,
+        'bytes' => $freed,
+        'max_mb' => $maxMb,
+        'sample' => array_slice($removed, 0, 20),
+    ]);
+}
+
 // ----------------------------------------------------------------- clear ----
 if ($action === 'clear') {
     if (!dr_csrf_ok()) {

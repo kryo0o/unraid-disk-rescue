@@ -201,6 +201,24 @@ find /mnt/disk4/xxx -type f -name '*.partial' -delete
 find /mnt/disk4/xxx -type f -name '*.dr-meta.*' -delete
 ```
 
+**清理没转移成功的目录**
+
+页面右上角「清理空/小目录」，可填大小阈值（默认 10MB）：
+
+- 空目录：直接删除
+- 只含未完成文件（`.partial` / `.dr-meta.*`）且总大小 **小于阈值** 的目录：删文件再删目录
+- **含正常文件的目录一律不动**（哪怕是几 MB 的小目录）
+- 阈值填 `0` = 只删空目录
+- 点击后先预览（数量、大小、路径），确认后才真正删除
+
+命令行等价操作：
+
+```bash
+# 先删未完成文件，再从深到浅删空目录
+find /mnt/disk4/xxx -type f -name '*.partial' -delete
+find /mnt/disk4/xxx -depth -type d -empty -delete
+```
+
 **大文件很慢却一直不跳过**
 
 宽限期还没结束。把宽限倍数调到 0，或调小上限；
