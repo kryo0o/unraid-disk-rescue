@@ -68,33 +68,27 @@ jobs:
           done
           echo "--- doctor ---"
           curl -fsS 'http://127.0.0.1:18080/api.php?action=doctor' | tee /tmp/doctor.json
-          python3 - <<'PY'
-import json
-c = json.load(open('/tmp/doctor.json'))['checks']
-need = ['bin_bash', 'bin_setsid', 'bin_dd', 'bin_find', 'bin_timeout']
-missing = [k for k in need if not c.get(k)]
-print("missing:", missing)
-assert not missing, missing
-assert c.get('shell_exec'), 'shell_exec disabled'
-assert c.get('data_writable'), 'data not writable'
-assert c.get('mnt_readable'), '/mnt not readable'
-PY
+          # jq -e：任一关键项为 false/null 就失败
+          jq -e '.checks.shell_exec and .checks.posix and .checks.data_writable
+                 and .checks.mnt_readable
+                 and .checks.bin_bash and .checks.bin_setsid and .checks.bin_dd
+                 and .checks.bin_find and .checks.bin_timeout' /tmp/doctor.json
           echo "page/api ok"
 
       - name: 真正启动一次抢救（容器内 start）
         run: |
           set -e
           echo "--- 启动请求返回 ---"
-            curl -sS -X POST \
-              --data-urlencode 'action=start' \
-              --data-urlencode 'src=/mnt/disk1/src' \
-              --data-urlencode 'dst=/mnt/disk4/dst' \
-              --data-urlencode 'min_speed=0' \
-              --data-urlencode 'speed_window=10' \
-              --data-urlencode 'check=1' \
-              --data-urlencode 'max_stall=1' \
-              --data-urlencode 'sync=0' \
-              http://127.0.0.1:18080/api.php | tee /tmp/start.json
+          curl -sS -X POST \
+            --data-urlencode 'action=start' \
+            --data-urlencode 'src=/mnt/disk1/src' \
+            --data-urlencode 'dst=/mnt/disk4/dst' \
+            --data-urlencode 'min_speed=0' \
+            --data-urlencode 'speed_window=10' \
+            --data-urlencode 'check=1' \
+            --data-urlencode 'max_stall=1' \
+            --data-urlencode 'sync=0' \
+            http://127.0.0.1:18080/api.php | tee /tmp/start.json
           grep -q '"ok":true' /tmp/start.json
           for i in $(seq 1 20); do
             [ -f /tmp/mnt/disk4/dst/a.txt ] && break
