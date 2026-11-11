@@ -1,39 +1,52 @@
 #!/bin/sh
 # diskrescue 容器启动脚本
 #   - 准备 /data 与 /tmp
-#   - 可选 HTTP Basic 认证（DR_USER / DR_PASS）
-#   - 交给 apache2-foreground
+#   - 生成 nginx server 配置（可选 Basic 认证）
+#   - 启动 php-fpm(-R) 与 nginx
 set -e
 
 DATA_DIR="${DR_DATA_DIR:-/data}"
-RUN_USER="${APACHE_RUN_USER:-root}"
-RUN_GROUP="${APACHE_RUN_GROUP:-root}"
 
 mkdir -p "$DATA_DIR/state" /tmp/diskrescue
 chmod 755 "$DATA_DIR" 2>/dev/null || true
 
-# 可选：基础认证（强烈建议在非纯内网环境启用）
+AUTH=""
 if [ -n "${DR_USER:-}" ] && [ -n "${DR_PASS:-}" ]; then
-    if command -v htpasswd >/dev/null 2>&1; then
-        htpasswd -bc /etc/apache2/.htpasswd "$DR_USER" "$DR_PASS" >/dev/null 2>&1
-    else
-        printf '%s:%s\n' "$DR_USER" "$(openssl passwd -apr1 "$DR_PASS")" > /etc/apache2/.htpasswd
-    fi
-    cat > /etc/apache2/conf-enabled/zz-diskrescue-auth.conf <<EOF
-<Directory /var/www/html>
-    AuthType Basic
-    AuthName "Disk Rescue"
-    AuthUserFile /etc/apache2/.htpasswd
-    Require valid-user
-</Directory>
-EOF
+    printf '%s:%s\n' "$DR_USER" "$(openssl passwd -apr1 "$DR_PASS")" > /etc/nginx/.htpasswd
+    chmod 640 /etc/nginx/.htpasswd
+    AUTH='auth_basic "Disk Rescue";
+        auth_basic_user_file /etc/nginx/.htpasswd;'
     echo "[diskrescue] 已启用 Basic 认证（用户: $DR_USER）"
 fi
 
-# 容器内以 root 运行，才能像在 Unraid 上一样读写 /mnt/diskX
-chown -R "$RUN_USER:$RUN_GROUP" "$DATA_DIR" 2>/dev/null || true
+cat > /etc/nginx/conf.d/diskrescue.conf <<EOF
+server {
+    listen 80;
+    root /var/www/html;
+    index index.php;
+    ${AUTH}
 
-echo "[diskrescue] data=$DATA_DIR user=$RUN_USER"
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php\$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}
+EOF
+
+# php-fpm 以 root 运行（-R）；-D 后台启动
+php-fpm -R -D
+
+echo "[diskrescue] data=$DATA_DIR"
 echo "[diskrescue] 打开 http://<主机IP>:<映射端口>/ 使用"
 
 exec "$@"
