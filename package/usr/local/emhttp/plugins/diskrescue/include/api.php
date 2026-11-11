@@ -104,6 +104,11 @@ if ($action === 'start') {
         dr_json(['ok' => false, 'error' => '已有抢救任务在运行（PID ' . $run['pid'] . '），请先停止']);
     }
 
+    // 容器里最容易犯的错：忘了挂载 /mnt
+    if (!is_dir('/mnt') || !is_readable('/mnt')) {
+        dr_json(['ok' => false, 'error' => '容器内看不到 /mnt，请确认启动参数包含 -v /mnt:/mnt']);
+    }
+
     list($src, $err) = dr_check_path(isset($_POST['src']) ? $_POST['src'] : '');
     if ($err !== null) {
         dr_json(['ok' => false, 'error' => '源目录: ' . $err]);
