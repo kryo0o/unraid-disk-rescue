@@ -8,6 +8,41 @@
 
 ---
 
+## 0. 在线安装（推荐）
+
+Unraid → **Plugins** → **Install Plugin**，粘贴下面这一行，点 **Install**：
+
+```
+https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg
+```
+
+装完按 `Ctrl+F5` 刷新页面，打开 **Tools（工具）→ 坏盘数据抢救**。
+不需要重启，也不需要先放任何文件。
+
+> 这是本仓库的 GitHub Pages 站点（`blog.kryoo.de` 是 Pages 的自定义域名），
+> 文件仍然托管在 GitHub 上。安装包约 29KB，`.plg` 里带 MD5 校验。
+
+### 如果上面这条下载失败
+
+按顺序换下面任意一条（内容完全相同，只是下载入口不同）：
+
+| 入口 | 地址 |
+| --- | --- |
+| GitHub Pages（主） | `https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg` |
+| GitHub 加速（纯 IPv4） | `https://ghfast.top/https://raw.githubusercontent.com/kryo0o/unraid-disk-rescue/main/dist/diskrescue-ghfast.plg` |
+| GitHub 加速（备用） | `https://gh-proxy.com/https://raw.githubusercontent.com/kryo0o/unraid-disk-rescue/main/dist/diskrescue-ghproxy.plg` |
+| jsDelivr CDN | `https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@v2026.11.12/dist/diskrescue-jsdelivr.plg` |
+
+> **不要用** `raw.githubusercontent.com` 或 GitHub Release 附件：
+> 前者在国内常被 DNS 污染成 `0.0.0.0`，后者会 302 到
+> `release-assets.githubusercontent.com`（同样不可达），表现就是
+> `plugin: diskrescue.plg download failure: Network failure`。
+>
+> 如果只有 jsDelivr 失败而 GitHub 加速能通，通常是本机 IPv6 不通导致
+> wget 卡在 AAAA 记录上；用上表里纯 IPv4 的 `ghfast.top` 即可。
+
+---
+
 ## 1. 为什么不是简单把脚本塞进 .plg
 
 Unraid 插件规范要求的是「`.plg` 清单 + `.txz` 安装包 + `/usr/local/emhttp/plugins/<name>/` 下的页面」，
@@ -127,24 +162,23 @@ file:///boot/config/plugins/diskrescue.plg
 安装地址（Unraid → Plugins → Install Plugin，直接粘贴）：
 
 ```
-https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@v2026.11.12/dist/diskrescue.plg
+https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg
 ```
 
-> 用 `@v2026.11.12` 这种不可变 tag，jsDelivr 立即生效且不会被缓存成旧版本；
-> `@main` 也能用，但分支缓存可能滞后。
-
-> 用 jsDelivr 而不是 `raw.githubusercontent.com`，因为后者在国内经常无法访问；
-> jsDelivr 会自己去 GitHub 抓取，国内可以正常下载。
+> 这是本仓库的 GitHub Pages 站点（`blog.kryoo.de` 是 Pages 的自定义域名），
+> 文件托管在 GitHub 上。`kryo0o.github.io/...` 会 301 跳到这里，直接用自定义域名更稳。
+> 备选入口（ghfast / gh-proxy / jsDelivr）见文首的表格。
 
 自己重新发布：
 
 ```bash
-bash build.sh --base-url https://cdn.jsdelivr.net/gh/<你>/<仓库>@main
+bash build.sh --base-url https://blog.kryoo.de/unraid-disk-rescue
 # 或
-python build.py --base-url https://cdn.jsdelivr.net/gh/<你>/<仓库>@main
+python build.py --base-url https://blog.kryoo.de/unraid-disk-rescue
 ```
 
-然后提交 `dist/` 与 `icons/`。`.plg` 里的 MD5 是构建时写死的，`.txz` 更新后必须重跑构建。
+然后提交 `dist/` 与 `icons/`，Pages 约 1 分钟后自动更新。
+`.plg` 里的 MD5 是构建时写死的，`.txz` 更新后必须重跑构建。
 
 > 注意：仓库根目录的 `diskrescue.plg.in` 是**模板**（含 `__MD5__` 占位符），
 > 不是可安装文件；安装请用 `dist/diskrescue.plg`。
