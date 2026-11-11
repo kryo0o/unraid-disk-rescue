@@ -127,8 +127,11 @@ file:///boot/config/plugins/diskrescue.plg
 安装地址（Unraid → Plugins → Install Plugin，直接粘贴）：
 
 ```
-https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main/dist/diskrescue.plg
+https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@v2026.11.12/dist/diskrescue.plg
 ```
+
+> 用 `@v2026.11.12` 这种不可变 tag，jsDelivr 立即生效且不会被缓存成旧版本；
+> `@main` 也能用，但分支缓存可能滞后。
 
 > 用 jsDelivr 而不是 `raw.githubusercontent.com`，因为后者在国内经常无法访问；
 > jsDelivr 会自己去 GitHub 抓取，国内可以正常下载。
