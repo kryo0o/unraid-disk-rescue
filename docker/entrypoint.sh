@@ -40,6 +40,11 @@ server {
     location ~ /\. {
         deny all;
     }
+
+    location = /favicon.ico {
+        access_log off;
+        return 204;
+    }
 }
 EOF
 

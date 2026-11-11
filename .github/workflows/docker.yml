@@ -61,11 +61,13 @@ jobs:
           grep -q '"ok":true' /tmp/status.json
           curl -fsS 'http://127.0.0.1:18080/api.php?action=browse&path=/mnt' | grep -q 'disk1'
           # 静态资源必须可加载，否则页面按钮点了没反应
-          for f in /js/diskrescue.js /css/diskrescue.css /icons/diskrescue.png; do
+          for f in /js/jquery.min.js /js/diskrescue.js /css/diskrescue.css /icons/diskrescue.png; do
             code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18080$f")
             echo "$f -> $code"
             [ "$code" = "200" ] || exit 1
           done
+          # 页面必须带上 jQuery 加载器（容器里 webGUI 不提供 jQuery）
+          grep -q 'js/jquery.min.js' /tmp/page.html
           echo "--- doctor ---"
           curl -fsS 'http://127.0.0.1:18080/api.php?action=doctor' | tee /tmp/doctor.json
           # jq -e：任一关键项为 false/null 就失败

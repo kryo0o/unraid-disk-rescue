@@ -239,4 +239,10 @@ $jsV    = @filemtime(__DIR__ . '/../js/diskrescue.js') ?: time();
   </div>
 </div>
 
+<script>
+// Unraid webGUI 自带 jQuery；Docker 容器里没有，按需加载本地副本
+if (typeof window.jQuery === 'undefined') {
+  document.write('<script src="<?=dr_h($asset)?>/js/jquery.min.js"><\/script>');
+}
+</script>
 <script src="<?=dr_h($asset)?>/js/diskrescue.js?v=<?=$jsV?>"></script>
