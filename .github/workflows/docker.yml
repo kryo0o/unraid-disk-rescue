@@ -127,7 +127,8 @@ jobs:
       - name: 清理空/小目录接口
         run: |
           set -e
-          D=/tmp/mnt/disk4/dst
+          D=/tmp/mnt/disk4/dst          # 宿主机路径（准备文件）
+          C=/mnt/disk4/dst              # 容器内路径（调接口）
           mkdir -p "$D/emptyA" "$D/smallB" "$D/bigC" "$D/realD"
           head -c 1M /dev/zero > "$D/smallB/x.partial"
           head -c 20M /dev/zero > "$D/bigC/y.partial"
@@ -136,7 +137,7 @@ jobs:
           echo "--- 预览（dry=1）---"
           curl -sS -X POST \
             --data-urlencode 'action=prune_dirs' \
-            --data-urlencode "dir=$D" \
+            --data-urlencode "dir=$C" \
             --data-urlencode 'max_mb=10' \
             --data-urlencode 'dry=1' \
             http://127.0.0.1:18080/api.php | tee /tmp/prune1.json
@@ -147,7 +148,7 @@ jobs:
           echo "--- 执行 ---"
           curl -sS -X POST \
             --data-urlencode 'action=prune_dirs' \
-            --data-urlencode "dir=$D" \
+            --data-urlencode "dir=$C" \
             --data-urlencode 'max_mb=10' \
             --data-urlencode 'dry=0' \
             http://127.0.0.1:18080/api.php | tee /tmp/prune2.json
