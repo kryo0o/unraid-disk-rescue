@@ -1,0 +1,14 @@
+# 编码说明
+
+所有文件均为 **UTF-8（无 BOM）**，换行符统一为 **LF**。
+
+打包时 `build.py` / `build.sh` 会自动把文本文件转成 LF；Unraid 上的
+`bash`、`php`、`nginx` 对 LF 最稳定 —— CRLF 会导致
+`bash: $'\r': command not found`，或 PHP 在 `?>` 之后输出多余空白导致
+「headers already sent」。
+
+如果从 Windows 直接复制文件到 Unraid，建议用 `git clone`，或先执行：
+
+```bash
+sed -i 's/\r$//' package/usr/local/emhttp/plugins/diskrescue/scripts/disk-rescue.sh
+```
