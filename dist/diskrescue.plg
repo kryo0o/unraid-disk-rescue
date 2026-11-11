@@ -3,9 +3,9 @@
 <!ENTITY name      "diskrescue">
 <!ENTITY author    "diskrescue">
 <!ENTITY version   "2026.11.12">
-<!ENTITY gitURL    "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main">
-<!ENTITY pluginURL "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main/dist/diskrescue.plg">
-<!ENTITY pkgURL    "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main/dist/diskrescue-2026.11.12.txz">
+<!ENTITY gitURL "https://blog.kryoo.de/unraid-disk-rescue">
+<!ENTITY pluginURL "https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg">
+<!ENTITY pkgURL    "https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue-2026.11.12.txz">
 ]>
 <PLUGIN name="&name;"
         author="&author;"
@@ -76,7 +76,7 @@ SMART 报错、复制时卡死等场景。</p>
 <!-- ============================ 安装包 ============================ -->
 <FILE Name="/boot/config/plugins/&name;/package.txz">
 <URL><![CDATA[&pkgURL;]]></URL>
-<MD5>84ad1b8fdd0222a2ac529a9f53f3cfb7</MD5>
+<MD5>e0151430c70be6a91e086f19c4409390</MD5>
 </FILE>
 
 <!-- ============================ 安装 ============================ -->
@@ -90,7 +90,7 @@ mkdir -p "/boot/config/plugins/${PLUGIN}"
 
 if [ ! -s "${PKG}" ]; then
   echo "正在下载安装包 ..."
-  URL="https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main/dist/diskrescue-2026.11.12.txz"
+  URL="https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue-2026.11.12.txz"
   wget -q -O "${PKG}" "${URL}" || curl -fsSL -o "${PKG}" "${URL}"
 fi
 

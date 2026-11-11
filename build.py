@@ -34,7 +34,7 @@ PLG_TEMPLATE = os.path.join(ROOT, "diskrescue.plg.in")
 VERSION = "2026.11.12"
 PLUGIN = "diskrescue"
 PKG_NAME = "%s-%s.txz" % (PLUGIN, VERSION)
-DEFAULT_BASE = "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main"
+DEFAULT_BASE = "https://blog.kryoo.de/unraid-disk-rescue"
 
 TEXT_EXT = (".sh", ".php", ".page", ".js", ".css", ".md", ".txt", ".plg", ".cfg")
 EXECUTABLES = {
@@ -415,9 +415,8 @@ def build_plg(package_path, base_url, local=False):
         # 清单自身的地址要指向 dist/ 里的成品，而不是仓库根目录的模板
         text = re.sub(r'<!ENTITY\s+pluginURL\s+"[^"]*">',
                       '<!ENTITY pluginURL "%s/dist/%s.plg">' % (base_url, PLUGIN), text)
-        text = text.replace(
-            "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main",
-            base_url)
+        text = re.sub(r'<!ENTITY\s+gitURL\s+"[^"]*">',
+                      '<!ENTITY gitURL "%s">' % base_url, text)
     else:
         # 离线包：清单/图标/安装包都指向本机固定位置
         text = text.replace("&gitURL;/icons/diskrescue.png",
