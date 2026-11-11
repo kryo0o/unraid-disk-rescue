@@ -21,6 +21,35 @@ if (!preg_match('/^[a-z]+$/', $action)) {
     dr_json(['ok' => false, 'error' => '未知操作'], 400);
 }
 
+// ---------------------------------------------------------------- doctor ----
+// 环境自检：容器里排障用。GET /api.php?action=doctor
+if ($action === 'doctor') {
+    $which = function ($cmd) {
+        $out = @shell_exec('command -v ' . $cmd . ' 2>/dev/null');
+        $out = is_string($out) ? trim($out) : '';
+        return $out !== '' ? $out : null;
+    };
+    $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+    $checks = [
+        'php'           => PHP_VERSION,
+        'sapi'          => PHP_SAPI,
+        'user'          => function_exists('posix_getpwuid')
+            ? (posix_getpwuid(posix_geteuid())['name'] ?? '') : '',
+        'shell_exec'    => function_exists('shell_exec') && !in_array('shell_exec', $disabled, true),
+        'posix'         => function_exists('posix_kill'),
+        'base'          => DR_BASE,
+        'data'          => DR_BOOT,
+        'data_writable' => is_dir(DR_STATE) && is_writable(DR_STATE),
+        'mnt_readable'  => is_dir('/mnt') && is_readable('/mnt'),
+        'csrf'          => dr_csrf_token() !== '',
+        'script'        => is_file(DR_BASE . '/scripts/disk-rescue.sh') ? 'ok' : 'missing',
+    ];
+    foreach (['bash', 'setsid', 'dd', 'find', 'timeout', 'nice', 'awk', 'df', 'stat', 'cp', 'sed'] as $b) {
+        $checks['bin_' . $b] = $which($b);
+    }
+    dr_json(['ok' => true, 'checks' => $checks]);
+}
+
 // ---------------------------------------------------------------- status ----
 if ($action === 'status') {
     $st = dr_status();
