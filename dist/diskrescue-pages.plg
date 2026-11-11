@@ -3,9 +3,9 @@
 <!ENTITY name      "diskrescue">
 <!ENTITY author    "diskrescue">
 <!ENTITY version   "2026.11.12">
-<!ENTITY gitURL    "https://kryo0o.github.io/unraid-disk-rescue">
-<!ENTITY pluginURL "https://kryo0o.github.io/unraid-disk-rescue/dist/diskrescue.plg">
-<!ENTITY pkgURL    "https://kryo0o.github.io/unraid-disk-rescue/dist/diskrescue-2026.11.12.txz">
+<!ENTITY gitURL    "https://blog.kryoo.de/unraid-disk-rescue">
+<!ENTITY pluginURL "https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg">
+<!ENTITY pkgURL    "https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue-2026.11.12.txz">
 ]>
 <PLUGIN name="&name;"
         author="&author;"
@@ -90,7 +90,7 @@ mkdir -p "/boot/config/plugins/${PLUGIN}"
 
 if [ ! -s "${PKG}" ]; then
   echo "正在下载安装包 ..."
-  URL="https://kryo0o.github.io/unraid-disk-rescue/dist/diskrescue-2026.11.12.txz"
+  URL="https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue-2026.11.12.txz"
   wget -q -O "${PKG}" "${URL}" || curl -fsSL -o "${PKG}" "${URL}"
 fi
 
