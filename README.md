@@ -1,209 +1,49 @@
-# diskrescue —— Unraid 坏盘数据抢救插件
+# diskrescue · 坏盘数据抢救
 
-把原来那个交互式 bash 脚本改造成符合 **Unraid 7.3 插件规范** 的 WebGUI 插件：
-在 `Tools（工具）` 里点几下就能跑，带实时进度、速度监控、断点续跑和失败清单。
+把健康状态不佳的磁盘上的文件，尽可能完整地复制到另一块健康磁盘。
 
-> 原脚本的核心逻辑（连续 N 次低于阈值就跳过、失败清单、保留目录结构）全部保留，
-> 只把"交互式 read"换成了网页表单，并把复制引擎换成更适合坏道的 `dd`。
+支持三种用法：**Unraid 插件**、**Docker**、**命令行脚本**。复制过程中按「最近 N 秒的平均速度」判断卡死，
+自动跳过无响应的文件，并把已读出的数据保留为 `*.partial`，之后可以继续抢救。
+
+```
+https://github.com/kryo0o/unraid-disk-rescue
+```
 
 ---
 
-## 0. 在线安装（推荐）
+## 目录
 
-Unraid → **Plugins** → **Install Plugin**，粘贴下面这一行，点 **Install**：
-
-```
-https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg
-```
-
-装完按 `Ctrl+F5` 刷新页面，打开 **Tools（工具）→ 坏盘数据抢救**。
-不需要重启，也不需要先放任何文件。
-
-> 这是本仓库的 GitHub Pages 站点（`blog.kryoo.de` 是 Pages 的自定义域名），
-> 文件仍然托管在 GitHub 上。安装包约 29KB，`.plg` 里带 MD5 校验。
-
-### 如果上面这条下载失败
-
-按顺序换下面任意一条（内容完全相同，只是下载入口不同）：
-
-| 入口 | 地址 |
-| --- | --- |
-| GitHub Pages（主） | `https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg` |
-| GitHub 加速（纯 IPv4） | `https://ghfast.top/https://raw.githubusercontent.com/kryo0o/unraid-disk-rescue/main/dist/diskrescue-ghfast.plg` |
-| GitHub 加速（备用） | `https://gh-proxy.com/https://raw.githubusercontent.com/kryo0o/unraid-disk-rescue/main/dist/diskrescue-ghproxy.plg` |
-| jsDelivr CDN | `https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@v2026.11.12/dist/diskrescue-jsdelivr.plg` |
-
-> **不要用** `raw.githubusercontent.com` 或 GitHub Release 附件：
-> 前者在国内常被 DNS 污染成 `0.0.0.0`，后者会 302 到
-> `release-assets.githubusercontent.com`（同样不可达），表现就是
-> `plugin: diskrescue.plg download failure: Network failure`。
->
-> 如果只有 jsDelivr 失败而 GitHub 加速能通，通常是本机 IPv6 不通导致
-> wget 卡在 AAAA 记录上；用上表里纯 IPv4 的 `ghfast.top` 即可。
-
-### 不想装插件？用 Docker
-
-```bash
-docker run -d --name diskrescue --restart unless-stopped \
-  -p 8080:80 \
-  -v /mnt:/mnt \
-  -v /srv/diskrescue:/data \
-  ghcr.io/kryo0o/diskrescue:latest
-```
-
-然后打开 `http://<NAS-IP>:8080/`。详见 [第 3.5 节](#35-docker部署)。
+- [快速开始](#快速开始)
+- [Docker 部署](#docker-部署)
+- [Unraid 插件](#unraid-插件)
+- [参数说明](#参数说明)
+- [使用流程](#使用流程)
+- [常见问题](#常见问题)
+- [项目结构](#项目结构)
+- [开发与发布](#开发与发布)
+- [设计说明](#设计说明)
+- [已知限制](#已知限制)
+- [许可](#许可)
 
 ---
 
-## 1. 为什么不是简单把脚本塞进 .plg
+## 快速开始
 
-Unraid 插件规范要求的是「`.plg` 清单 + `.txz` 安装包 + `/usr/local/emhttp/plugins/<name>/` 下的页面」，
-而不是一个可执行脚本。这个仓库按规范提供了：
-
-| 组件 | 路径 | 作用 |
+| 方式 | 适用场景 | 入口 |
 | --- | --- | --- |
-| 插件清单 | `diskrescue.plg` | Unraid 插件管理器读取的 XML（含 MD5 校验、安装/卸载指令） |
-| 安装包 | `dist/diskrescue-2026.11.12.txz` | 解压到 `/`，内容为 `usr/local/emhttp/plugins/diskrescue/...` |
-| 页面 | `DiskRescue.page` | 挂在 Tools 菜单，**不是** `.php` 独立入口 |
-| 接口 | `include/api.php` | AJAX：启动 / 停止 / 轮询状态 |
-| 核心 | `scripts/disk-rescue.sh` | 真正的复制逻辑，也可在控制台独立运行 |
-| 元数据 | `package/`、`icons/` | 打包源目录与图标 |
+| Docker | 任意 Linux / Unraid，最省事 | `ghcr.io/kryo0o/diskrescue:latest` |
+| Unraid 插件 | 想集成进 Tools 菜单 | 在线安装地址（见下文） |
+| 命令行 | 无 Web、脚本化、远程 SSH | `scripts/disk-rescue.sh` |
+
+三者使用的是**同一份核心脚本和同一套页面**，行为完全一致。
 
 ---
 
-## 2. 与原始脚本的差异（重要）
+## Docker 部署
 
-| 项目 | 原脚本 | 本插件 | 原因 |
-| --- | --- | --- | --- |
-| 复制引擎 | `cp -p` 后台 + `stat` 轮询目标文件大小 | `dd bs=1M conv=fsync`，解析 dd 报告的字节数 | `cp` 遇到坏道会静默截断；dd 会报错并停止，且能拿到精确进度 |
-| 失败文件 | 直接 `rm -f` | 重命名为 `*.partial` 保留 | 已抢救出的数据不能丢，可再用 ddrescue 续读 |
-| 速度判定 | 每 5 秒看一次目标文件大小 | **最近 N 秒的平均速度**（默认 10 秒） | 瞬时速度会被缓存/写盘抖动骗；窗口平均才反映真实可读性 |
-| 宽限时间 | 无（15 秒就砍） | 可配置：倍数 ×（文件大小/阈值），上限、小文件宽限都能调 | 宽容"慢但正常"的大文件，同时允许调紧 |
-| 目录枚举 | `timeout 120s find`，超时后结构不完整且无提示 | 超时可控、超时会提示、枚举时实时显示已找到文件数 | 坏盘上 `find` 卡住很常见 |
-| 计数器 | `find ... | wc -l` 再 `find` 一遍 | `-print0` 一次枚举，计数精确且支持任意文件名 | 原逻辑会数错且多扫一遍坏盘 |
-| 文件计数 | 管道 while 导致计数器失效的隐患 | `-print0` + `read -d ''` | 正确处理换行/空格文件名 |
-| 路径安全 | 无校验 | 拒绝 `..`、拒绝源/目标相同、拒绝目标在源内 | 防手滑把盘写满或递归复制 |
-| 交互 | `read -p` | WebGUI 表单 + 目录选择器 | 插件规范 |
+镜像公开，支持 `linux/amd64` 与 `linux/arm64`，由 GitHub Actions 自动构建。
 
----
-
-## 3. 构建
-
-### 3.1 在 Unraid 控制台（推荐）
-
-把整个目录传到 Unraid（例如 `/mnt/user/appdata/unraid-disk-rescue`），然后：
-
-```bash
-cd /mnt/user/appdata/unraid-disk-rescue
-chmod +x build.sh
-./build.sh
-```
-
-产物：
-
-- `dist/diskrescue-2026.11.12.txz`
-- `dist/diskrescue.plg`（联网发布用）
-- `dist/diskrescue-local.plg`（离线本地安装用）
-- `dist/diskrescue-2026.11.12.txz.sha256`
-
-### 3.2 在 Windows / macOS（有 Python 3）
-
-```powershell
-cd unraid-disk-rescue
-python tools\make_icon.py   # 只在本机没有现成图标时需要
-python build.py             # 生成 dist/diskrescue-2026.11.12.txz + dist/diskrescue.plg
-python tools\check.py       # 可选：静态检查 + 功能测试（需要 bash；Windows 上装 Git 即可）
-```
-
-`build.py` 只用 Python 标准库（`tarfile` + `lzma`），不需要系统装 `tar`/`xz`；
-图标缺失时会自动调用 `tools/make_icon.py`，再不行就写一个纯色占位 PNG。
-
-> 注意：`build.py --check` 只做静态检查；完整的功能测试在 `tools/check.py`。
-
-### 3.3 本地安装（不联网）
-
-**方式 A：一条命令（推荐）**
-
-```bash
-cd /mnt/user/appdata/unraid-disk-rescue
-bash tools/install-local.sh
-```
-
-它会把源码打包成 `/boot/config/plugins/diskrescue/package.txz`、生成带 MD5 的
-`/boot/config/plugins/diskrescue.plg`，然后调用 `/usr/local/sbin/plugin install` 完成安装。
-卸载：
-
-```bash
-bash tools/install-local.sh --uninstall
-# 或
-/usr/local/sbin/plugin remove diskrescue
-```
-
-**方式 B：手动三步（和 A 等价，便于理解）**
-
-```bash
-mkdir -p /boot/config/plugins/diskrescue
-cp dist/diskrescue-2026.11.12.txz /boot/config/plugins/diskrescue/package.txz
-cp dist/diskrescue-local.plg      /boot/config/plugins/diskrescue.plg
-/usr/local/sbin/plugin install /boot/config/plugins/diskrescue.plg
-```
-
-**方式 C：WebGUI**
-
-Plugins → Install Plugin，粘贴：
-
-```
-file:///boot/config/plugins/diskrescue.plg
-```
-
-查看是否已登记：
-
-```bash
-/usr/local/sbin/plugin list | grep diskrescue
-```
-
-> `/usr/local/emhttp` 是内存盘，插件文件平时是解压出来的；
-> 真正让它在重启后自动恢复的是 `/boot/config/plugins/diskrescue.plg`
-> 和同目录下的 `package.txz`。所以**不要**只手工解压 tar 而不放 .plg，
-> 那样重启后插件会消失。
-
-### 3.4 已发布地址
-
-仓库：<https://github.com/kryo0o/unraid-disk-rescue>
-
-安装地址（Unraid → Plugins → Install Plugin，直接粘贴）：
-
-```
-https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg
-```
-
-> 这是本仓库的 GitHub Pages 站点（`blog.kryoo.de` 是 Pages 的自定义域名），
-> 文件托管在 GitHub 上。`kryo0o.github.io/...` 会 301 跳到这里，直接用自定义域名更稳。
-> 备选入口（ghfast / gh-proxy / jsDelivr）见文首的表格。
-
-自己重新发布：
-
-```bash
-bash build.sh --base-url https://blog.kryoo.de/unraid-disk-rescue
-# 或
-python build.py --base-url https://blog.kryoo.de/unraid-disk-rescue
-```
-
-然后提交 `dist/` 与 `icons/`，Pages 约 1 分钟后自动更新。
-`.plg` 里的 MD5 是构建时写死的，`.txz` 更新后必须重跑构建。
-
-> 注意：仓库根目录的 `diskrescue.plg.in` 是**模板**（含 `__MD5__` 占位符），
-> 不是可安装文件；安装请用 `dist/diskrescue.plg`。
-
-### 3.5 Docker 部署
-
-镜像由 GitHub Actions 自动构建（amd64 / arm64），发布在 GHCR：
-
-```
-ghcr.io/kryo0o/diskrescue:latest
-```
-
-**一条命令启动**
+### 直接运行
 
 ```bash
 docker run -d --name diskrescue --restart unless-stopped \
@@ -213,9 +53,9 @@ docker run -d --name diskrescue --restart unless-stopped \
   ghcr.io/kryo0o/diskrescue:latest
 ```
 
-打开 `http://<NAS-IP>:8080/`，用法与插件页面完全一致（同一套 UI 和脚本）。
+然后打开 `http://<NAS-IP>:8080/`。
 
-**docker compose**
+### docker compose
 
 ```yaml
 services:
@@ -238,200 +78,110 @@ services:
 docker compose up -d
 ```
 
-**卷与目录**
+### Unraid Docker 页面添加
 
-| 容器内 | 用途 | 建议 |
-| --- | --- | --- |
-| `/mnt` | 要被抢救/写入的磁盘 | 必须挂载，否则页面里选不到盘 |
-| `/data` | 配置、日志、状态 | 持久化到宿主机目录 |
+| 字段 | 值 |
+| --- | --- |
+| Repository | `ghcr.io/kryo0o/diskrescue:latest` |
+| Network | Bridge |
+| Port | `8080` → `80` |
+| Path 1 | `/mnt` → `/mnt`（读写） |
+| Path 2 | `/mnt/user/appdata/diskrescue` → `/data`（读写） |
+| 变量 | `DR_USER` / `DR_PASS` 可选，启用登录 |
 
-**环境变量**
+### 卷与环境变量
+
+| 容器内 | 用途 |
+| --- | --- |
+| `/mnt` | 要被抢救/写入的磁盘，必须挂载 |
+| `/data` | 配置、日志、状态，建议持久化 |
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `TZ` | `Asia/Shanghai` | 时区（日志时间） |
+| `TZ` | `Asia/Shanghai` | 日志时区 |
 | `DR_USER` / `DR_PASS` | 空 | 设置后启用 HTTP Basic 认证 |
-| `DR_DATA_DIR` | `/data` | 配置与日志目录（需与卷对应） |
+| `DR_DATA_DIR` | `/data` | 配置与日志目录 |
 | `DR_CSRF_TOKEN` | 空 | 非空时校验 CSRF，一般不用设 |
-| `APACHE_RUN_USER` | `root` | 容器内运行用户；读 `/mnt/diskX` 需要 root |
 
-> **安全提示**：为了能像在 Unraid 上一样读写 `/mnt/diskX`，容器内默认以 root 运行，
-> 且页面本身没有登录。请只在可信内网暴露端口，或用 `DR_USER`/`DR_PASS` 开启认证。
->
-> Docker 里访问 `/mnt/user` 会经过 FUSE，性能和兼容性都不如在宿主机上；
-> 抢救时优先直接选 `/mnt/disk1`、`/mnt/disk4` 这类磁盘路径。
-
-**升级镜像**
-
-```bash
-docker compose pull && docker compose up -d
-# 或
-docker pull ghcr.io/kryo0o/diskrescue:latest && docker rm -f diskrescue && ...重新 run...
-```
-
-**本地构建**
-
-```bash
-docker build -f docker/Dockerfile -t diskrescue:dev .
-docker run --rm -p 8080:80 -v /mnt:/mnt -v "$PWD/data:/data" diskrescue:dev
-```
+> 容器内以 root 运行（否则无法读写 `/mnt/diskX`），页面本身没有登录。
+> 请只在可信内网暴露端口，或务必设置 `DR_USER`/`DR_PASS`。
 
 ---
 
-## 4. 使用
+## Unraid 插件
 
-1. **源文件夹**：坏盘上的目录，例如 `/mnt/disk1/downloads/fsm/exo`
-2. **目标文件夹**：健康磁盘上已存在的目录，例如 `/mnt/disk4/downloads/exo`
-3. 先勾选 **仅预扫描** 跑一遍（只读检查每个文件首 1MB），确认坏道范围
-4. 取消预扫描，点 **开始抢救**
+要求 **Unraid 7.3+**。插件文件托管在 GitHub Pages（自定义域名 `blog.kryoo.de`）。
 
-默认速度监控：**最近 10 秒的平均速度低于 10MB/s 就跳过该文件**。
+### 在线安装
 
-宽限规则默认：`2 × (文件大小 ÷ 10MB/s)`，上限 900 秒，小于 4MiB 的文件固定 10 秒。
-宽限期内不判定；宽限结束后才用「10 秒窗口平均速度」判定。
-例如 1GB 文件的宽限是 200 秒，2GB 以上基本都会顶到 900 秒上限。
+**Plugins → Install Plugin**，粘贴：
 
-如果希望更激进（一出现慢速就切），把**宽限倍数设为 0**，并把**连续判定次数**设为 1：
-这样文件在攒满一个统计窗口（10 秒）后就会按窗口平均速度判定。
+```
+https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg
+```
 
-页面上可调（都保存在 `/boot/config/plugins/diskrescue/diskrescue.cfg`，下次打开自动带出）：
+装完 `Ctrl+F5` 刷新，打开 **Tools（工具）→ 坏盘数据抢救**。
+
+### 下载失败时换入口
+
+清单内容和安装包完全相同，只是下载通道不同，任选一条能通的：
+
+| 入口 | 地址 |
+| --- | --- |
+| Pages（主） | `https://blog.kryoo.de/unraid-disk-rescue/dist/diskrescue.plg` |
+| GitHub 加速（纯 IPv4） | `https://ghfast.top/https://raw.githubusercontent.com/kryo0o/unraid-disk-rescue/main/dist/diskrescue-ghfast.plg` |
+| GitHub 加速（备用） | `https://gh-proxy.com/https://raw.githubusercontent.com/kryo0o/unraid-disk-rescue/main/dist/diskrescue-ghproxy.plg` |
+| jsDelivr | `https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@v2026.11.12/dist/diskrescue-jsdelivr.plg` |
+
+> **不要用** `raw.githubusercontent.com` 或 GitHub Release 附件：
+> 前者在国内常被 DNS 污染成 `0.0.0.0`，后者会 302 到 `release-assets.githubusercontent.com`（同样不可达），
+> 表现就是 `download failure: Network failure`。
+
+### 离线 / 命令行安装
+
+```bash
+# 一条命令：打包到 /boot 并注册
+bash tools/install-local.sh
+
+# 卸载
+bash tools/install-local.sh --uninstall
+```
+
+或者手动三步：
+
+```bash
+mkdir -p /boot/config/plugins/diskrescue
+cp dist/diskrescue-2026.11.12.txz /boot/config/plugins/diskrescue/package.txz
+cp dist/diskrescue-local.plg      /boot/config/plugins/diskrescue.plg
+/usr/local/sbin/plugin install /boot/config/plugins/diskrescue.plg
+```
+
+> `/usr/local/emhttp` 是内存盘：只手工解压 tar 而不放 `.plg`，重启后插件会消失。
+
+---
+
+## 参数说明
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| 最低平均速度 | 10 MB/s | 0 = 关闭速度监控 |
-| 统计窗口 | 10 秒 | 窗口内平均速度 |
-| 采样间隔 | 2 秒 | 读取 dd 进度的频率 |
+| 源文件夹 | — | 坏盘上的目录，如 `/mnt/disk1/xxx` |
+| 目标文件夹 | — | 健康磁盘上**已存在**的目录，如 `/mnt/disk4/xxx` |
+| 最低平均速度 | 10 MB/s | 窗口平均低于此值判定卡死；0 = 关闭监控 |
+| 统计窗口 | 10 秒 | 用最近 N 秒的平均速度判定，避免瞬时抖动误判 |
+| 采样间隔 | 2 秒 | 读取 dd 已复制字节数的频率 |
 | 连续判定次数 | 1 | 连续几次窗口不达标才跳过 |
-| 宽限倍数 | 2 | 0 = 不按文件大小放宽 |
+| 宽限倍数 | 2 | 宽限 = 倍数 ×（文件大小 ÷ 阈值速度），期间不判定；0 = 不按大小放宽 |
 | 宽限上限 | 900 秒 | 超大文件的封顶 |
-| 小文件宽限 | 10 秒 | <4MiB 固定用这个值 |
+| 小文件宽限 | 10 秒 | < 4MiB 固定使用该值 |
+| 跳过已存在 | 开 | 目标中大小一致的文件直接跳过（断点续跑） |
+| 强制落盘 | 开 | `dd conv=fsync`，速度更真实但略慢 |
 
-**源目录和目标目录也会被记住**：下次打开页面自动带出上次用的路径，改完直接点开始。
-所有参数和路径都保存在 `/boot/config/plugins/diskrescue/diskrescue.cfg`。
+页面上的参数与**源/目标路径都会被记住**，保存在 `/boot/config/plugins/diskrescue/diskrescue.cfg`（容器里是 `/data`）。
 
-### 命令行用法
+**关于宽限**：默认 2× 时，1GB 文件要等约 200 秒才开始判定。
+想让「10 秒平均低于 10MB/s 就立即跳过」，把**宽限倍数设为 0**。
 
-```bash
-/usr/local/emhttp/plugins/diskrescue/scripts/disk-rescue.sh --help
-
-# 只抢救一个目录，关闭速度监控
-/usr/local/emhttp/plugins/diskrescue/scripts/disk-rescue.sh \
-  --src /mnt/disk1/downloads --dst /mnt/disk4/rescue \
-  --min-speed 0 --yes
-
-# 断点续跑（跳过已存在且大小一致的文件）
-... --skip-existing --yes
-```
-
-### 输出
-
-| 位置 | 内容 |
-| --- | --- |
-| 目标目录/`disk-rescue-failed.txt` | 失败与跳过清单（时间 \| 原因 \| 源文件） |
-| 目标目录/`*.partial` | 被中断文件的已读部分 |
-| `/boot/config/plugins/diskrescue/state/` | 日志与状态（保留最近 10 份） |
-
----
-
-## 5. 目录结构
-
-```
-unraid-disk-rescue/
-├── diskrescue.plg.in               # 插件清单模板（__MD5__ / __PKGURL__ 由构建替换）
-├── build.sh                        # Unraid 上的 shell 构建脚本
-├── build.py                        # 跨平台 Python 构建脚本
-├── tools/
-│   ├── make_icon.py                # 纯 Python 生成图标
-│   ├── check.py                    # 静态检查 + 功能测试
-│   └── make_fallback_png.py
-├── icons/diskrescue.png            # 给 .plg 引用的图标
-├── package/                        # 打包内容（原样解压到 /）
-│   └── usr/local/emhttp/plugins/diskrescue/
-│       ├── DiskRescue.page         # Tools 菜单页面
-│       ├── include/
-│       │   ├── helpers.php         # 公共函数（路径校验/状态读取）
-│       │   ├── api.php             # AJAX 接口
-│       │   ├── install.sh          # 手动安装（可选）
-│       │   └── uninstall.sh        # 手动卸载（可选）
-│       ├── scripts/disk-rescue.sh  # 核心脚本
-│       ├── css/diskrescue.css
-│       ├── js/diskrescue.js
-│       └── icons/diskrescue.png
-└── dist/                           # 构建产物
-```
-
----
-
-## 6. 实现要点（给后续维护）
-
-### 6.1 后台任务如何活过 PHP 请求
-
-`api.php` 用 `nohup setsid bash disk-rescue.sh ... &` 启动，脚本自己写：
-
-- `state/status`：`key=value` 状态（state/phase/total/done/ok/skipped/failed/bytes_done/speed_bps/cur_file）
-- `state/disk-rescue-<时间>.log`：完整日志
-
-前端每 2 秒 `GET api.php?action=status&offset=N`，只取新增日志。
-进程存活用 `posix_kill($pid, 0)` 判断，**不依赖** PHP 的进程管理。
-
-> 关键细节：PHP 启动子进程时，子进程会继承 PHP 的**响应管道 fd**（不止 0/1/2）。
-> 如果一直持有，浏览器端会一直等「开始抢救」的响应直到整个任务结束（实测 18 秒）。
-> 因此 `disk-rescue.sh` 在非交互模式下会调用 `detach_inherited_fds` 主动关闭
-> `/proc/$$/fd` 中大于 2 的描述符。修改启动逻辑时不要删掉这一步。
-
-### 6.2 为什么 dd 的字节数可信
-
-`conv=fsync` 让 dd 在退出前把数据落盘，`status=progress` 每 0.5 秒向 stderr 写一行
-`<n> bytes ... copied`。解析最后一行即可得到已复制字节数，比 `stat` 目标文件更准，
-也不会被页缓存欺骗。
-
-速度判定用的是「滑动窗口」：每次采样把 `(秒, 已复制字节)` 压入数组，
-丢掉窗口外的旧样本，用 `(当前字节 − 窗口最老字节) ÷ 时间差` 得到窗口平均速度。
-这样单个采样点的抖动不会误判，持续慢速才会触发。若 dd 不支持 `status=progress`
-（BusyBox），会退回用目标文件大小估算进度。
-
-### 6.3 停止
-
-- WebGUI「停止」→ `kill -TERM` 脚本
-- 脚本的 trap 置 `STOP_SIGNAL=1`，当前 dd 最多等 10 秒后 `kill -9`
-- 已写入的数据改名 `*.partial`，不会删除
-- `api.php` 只等 5 秒就返回（不轻易 `kill -9` 脚本），避免打断收尾导致丢数据
-
-### 6.4 CSRF
-
-页面把 `$var['csrf_token']` 写进 `<input id="dr-csrf">`，POST 时带 `csrf_token` 字段 +
-`X-CSRF-Token` 头；`api.php` 用 `hash_equals()` 校验。取不到 token 的环境（旧版 webGUI）
-降级为不校验，仍依赖 webGUI 自身登录鉴权。
-
----
-
-## 7. 测试
-
-```bash
-python tools/check.py           # 静态检查 + 功能测试 + 行为测试
-PHP=/path/to/php python tools/check.py   # 同时做 php -l
-```
-
-覆盖内容：
-
-- `.plg` 结构、XML 实体、两段 `<INLINE>` 的 bash 语法
-- 包内文件齐全、文本文件无 CRLF
-- `bash -n`、`php -l`（有 php 时）、`node --check`（有 node 时）
-- 功能：复制内容逐一比对、status 字段、`--skip-existing`、`--dry-run`、
-  拒绝「源=目标」与「目标在源内」、无参数时正常报错退出
-- 行为：慢速 dd 替身下验证 **窗口平均速度判卡死 → 保留 `.partial` → 退出码 3**、
-  **慢速但正常不被误杀**、**中途停止 → `stopped` → `.partial` → 退出码 2**
-- 行为：用「慢速 dd 替身」确定性验证 **判卡死 → 保留 `.partial` → 退出码 3**，
-  以及 **中途停止 → `state=stopped` → 保留 `.partial` → 退出码 2**
-
-在 Unraid 上也可以直接：
-
-```bash
-bash -n /usr/local/emhttp/plugins/diskrescue/scripts/disk-rescue.sh
-php -l /usr/local/emhttp/plugins/diskrescue/include/api.php
-```
-
-### 退出码
+**退出码**（命令行模式）：
 
 | 码 | 含义 |
 | --- | --- |
@@ -442,18 +192,138 @@ php -l /usr/local/emhttp/plugins/diskrescue/include/api.php
 
 ---
 
-## 8. 已知限制
+## 使用流程
 
-- 只允许 `/mnt` 下的路径（插件规范内的安全约束）。要抢救 `/boot` 或外接挂载点需自行改 `dr_check_path()`。
-- 预扫描只读每个文件首 1MB，不保证文件后段完好。
-- 不处理硬链接/符号链接（符号链接会被 `find -type f` 跳过）。
-- 同一时间只允许一个抢救任务（`/tmp/diskrescue/running` 锁）。
-- 速度监控的判定基于 dd 的累计字节数；若关闭 `conv=fsync`，页缓存可能让速度看起来偏高。
+1. **先预扫描**：勾选「仅预扫描」跑一遍，只读检查每个文件首 1MB，估算坏道范围
+2. 取消预扫描，填好源/目标，点「开始抢救」
+3. 观察实时日志、速度、成功/跳过/失败计数；随时可以「停止」
+4. 结束后查看目标目录：
+   - `disk-rescue-failed.txt`：失败与跳过的清单（时间 | 原因 | 源文件）
+   - `*.partial`：被中断文件已读出的部分，可用 `ddrescue` 继续补读
+
+建议：
+
+- 优先选 `/mnt/diskX` 这类裸磁盘路径，避免 `/mnt/user` 的 FUSE 层
+- 目标盘预留足够空间；剩余不足 2GB 会被拦下（页面可勾选忽略）
+- 抢救过程中不要重启或停止阵列
 
 ---
 
-## 9. 免责声明
+## 常见问题
 
-坏盘读取存在不确定性，本工具只负责"尽力复制"，不保证数据完整性。
-重要数据请优先考虑专业数据恢复服务；操作前请确认目标磁盘空间充足，
-并避免在抢救过程中停止阵列或重启。
+**装插件时报 `download failure: Network failure`**
+
+`wget` 连不上下载域名。换用[上表的备用入口](#下载失败时换入口)，其中 `ghfast.top` 是纯 IPv4，能绕开 IPv6 不通的问题。
+
+**报 `download failure: zero-length file`**
+
+`.plg` 下好了，但下一个文件拿到 0 字节，通常是 CDN 部署间隙。重试一次；仍不行就换入口。
+
+**报 `Unraid attribute not present`**
+
+这是插件管理器在检查可选的 `max`/`Unraid` 版本上限属性，**不是错误**，可以忽略。
+
+**页面里看不到磁盘 / 选择目录报错**
+
+路径必须在 `/mnt` 下。Docker 部署要确认 `-v /mnt:/mnt` 已挂载。
+
+**复制时提示权限不足 / 无法写入**
+
+插件以 root 运行没有问题；Docker 版容器内也是 root。若挂载了只读卷，检查挂载参数。
+
+**大文件很慢却一直不跳过**
+
+宽限期还没结束（见[参数说明](#参数说明)）。把宽限倍数调到 0 或调小上限。
+
+---
+
+## 项目结构
+
+```
+.
+├── diskrescue.plg.in                 # 插件清单模板（构建时替换 MD5/URL）
+├── build.py / build.sh               # 打包插件（Python / 纯 shell 两种）
+├── dist/                             # 构建产物（.txz / .plg / sha256）
+├── package/usr/local/emhttp/plugins/diskrescue/
+│   ├── DiskRescue.page              # Unraid 页面入口（薄壳）
+│   ├── include/page-body.php        # 页面主体（插件与 Docker 共用）
+│   ├── include/api.php              # AJAX 接口
+│   ├── include/helpers.php          # 路径、状态、配置
+│   ├── scripts/disk-rescue.sh       # 核心脚本（也可独立 CLI 使用）
+│   ├── css/ · js/ · icons/
+├── docker/
+│   ├── Dockerfile                   # nginx + php-fpm(-R)
+│   ├── entrypoint.sh                # 初始化 /data、可选 Basic 认证
+│   ├── nginx.conf · php-fpm-root.conf
+│   └── public/                      # 容器入口（index.php / api.php）
+├── docker-compose.yml
+├── tools/
+│   ├── check.py                     # 静态检查 + 功能/行为测试
+│   ├── install-local.sh             # 命令行安装/卸载
+│   ├── make_icon.py · make_fallback_png.py
+│   └── publish.py                   # 通过 GitHub API 发布
+└── .github/workflows/docker.yml     # CI：语法检查 → 容器冒烟 → 推送 GHCR
+```
+
+---
+
+## 开发与发布
+
+```bash
+# 构建插件包（生成 dist/）
+python build.py
+# 或（Unraid 上无 python 时）
+bash build.sh
+
+# 测试：语法 + 功能 + 行为（判卡死 / 不误判 / 停止）
+python tools/check.py
+PHP=/path/to/php python tools/check.py     # 额外跑 php -l
+
+# 本地构建镜像
+docker build -f docker/Dockerfile -t diskrescue:dev .
+```
+
+**发布新版本**
+
+1. 改 `build.py` 里的 `VERSION` 与 `diskrescue.plg.in` 的版本号
+2. `python build.py --base-url https://blog.kryoo.de/unraid-disk-rescue`
+3. 提交 `dist/`，推送到 `main`
+4. 打 tag（`v2026.11.12`）→ Actions 自动构建镜像；Pages 约 1 分钟后更新插件
+
+镜像标签：`latest`（默认分支）、分支名、`vX.Y.Z` 及其 `X.Y`。
+
+---
+
+## 设计说明
+
+**为什么不是 `cp`**：`cp` 遇到坏道可能静默截断。这里用 `dd bs=1M conv=fsync`，
+坏扇区处报错即停，且能用 `status=progress` 拿到精确的已复制字节数。
+
+**速度判定**：维护 `(秒, 字节)` 样本滑动窗口，丢弃窗口外的旧点，
+用 `(当前字节 − 窗口最老字节) ÷ 时间差` 得到窗口平均速度。单个采样点抖动不会误判。
+
+**停止**：`SIGTERM` 后脚本最多等 dd 10 秒，已写数据改名 `*.partial`；
+接口只等 5 秒且不轻易 `kill -9`，避免打断收尾丢数据。
+
+**Web 请求不被长任务阻塞**：脚本启动时会关闭从 PHP 继承的多余 fd
+（`detach_inherited_fds`），否则浏览器会一直等「开始抢救」的响应直到任务结束。
+
+**容器为什么用 nginx + php-fpm**：Apache 拒绝以 root 运行，而抢救脚本需要 root
+读写 `/mnt/diskX`；php-fpm 用 `-R` 以 root 执行，nginx 作前端。
+
+---
+
+## 已知限制
+
+- 只允许 `/mnt` 下的路径（插件与容器都是）
+- 不处理符号链接与硬链接（`find -type f` 会跳过链接）
+- 预扫描只读每个文件首 1MB，不保证后段完好
+- 同一时间只允许一个抢救任务
+- 关闭 `conv=fsync` 时，页缓存可能让速度看起来偏高
+- 插件依赖 GitHub Pages 自定义域名；改域名后安装地址会变
+
+---
+
+## 许可
+
+[MIT](LICENSE)
