@@ -20,12 +20,12 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends nginx curl procps util-linux openssl \
  && rm -rf /var/lib/apt/lists/*
 
-# 插件本体：页面、接口、脚本
-COPY package/usr/local/emhttp/plugins/diskrescue /opt/diskrescue
+# 应用本体：页面、接口、脚本
+COPY app /opt/diskrescue
 
 # Web 根目录：入口 + 静态资源
 COPY docker/public /var/www/html
-RUN cp -R /opt/diskrescue/css /opt/diskrescue/js /opt/diskrescue/icons /var/www/html/ \
+RUN cp -R /opt/diskrescue/css /opt/diskrescue/js /var/www/html/ \
  && chmod 755 /opt/diskrescue/scripts/disk-rescue.sh
 
 # nginx 主配置与 php-fpm 的 root 池

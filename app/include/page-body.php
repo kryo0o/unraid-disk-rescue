@@ -127,6 +127,12 @@ $jsV    = @filemtime(__DIR__ . '/../js/diskrescue.js') ?: time();
           <div class="dr-hint" id="dr-stall-hint">最近 10 秒平均速度低于 10MB/s 即跳过。</div>
         </div>
         <div class="dr-field">
+          <label for="dr-hang-timeout">卡死超时（秒）</label>
+          <input type="number" id="dr-hang-timeout" name="hang_timeout" min="0" max="3600" step="1"
+                 value="<?=dr_h($cfg['hang_timeout'])?>" <?=$running ? 'disabled' : ''?>>
+          <div class="dr-hint">完全没有进度超过该时间直接跳过，不受宽限影响。0 = 关闭。</div>
+        </div>
+        <div class="dr-field">
           <label for="dr-grace-factor">宽限倍数</label>
           <input type="number" id="dr-grace-factor" name="grace_factor" min="0" max="100" step="1"
                  value="<?=dr_h($cfg['grace_factor'])?>" <?=$running ? 'disabled' : ''?>>

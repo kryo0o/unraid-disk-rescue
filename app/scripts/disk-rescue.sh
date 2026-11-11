@@ -15,6 +15,7 @@
 #    --speed-window SEC    统计窗口：最近 N 秒的平均速度（默认 10）
 #    --check SECONDS       采样间隔（默认 2）
 #    --max-stall N         连续多少次判定后跳过（默认 1）
+#    --hang-timeout SEC    完全没有进度超过多少秒就判定卡死（默认 45，0=关闭）
 #    --grace-factor N      宽限 = N × (文件大小 / 阈值速度)（默认 2）
 #    --grace-max SEC       宽限上限（默认 900）
 #    --grace-small SEC     小文件（<4MiB）宽限（默认 10）
@@ -54,6 +55,7 @@ MIN_SPEED_MB=10
 SPEED_WINDOW=10
 CHECK_INTERVAL=2
 MAX_STALL=1
+HANG_TIMEOUT=45
 GRACE_FACTOR=2
 GRACE_MAX=900
 GRACE_SMALL=10
@@ -267,6 +269,7 @@ parse_args() {
             --speed-window) need_value "$key" $#; SPEED_WINDOW="$2"; shift 2 ;;
             --check)        need_value "$key" $#; CHECK_INTERVAL="$2"; shift 2 ;;
             --max-stall)    need_value "$key" $#; MAX_STALL="$2"; shift 2 ;;
+            --hang-timeout) need_value "$key" $#; HANG_TIMEOUT="$2"; shift 2 ;;
             --grace-factor) need_value "$key" $#; GRACE_FACTOR="$2"; shift 2 ;;
             --grace-max)    need_value "$key" $#; GRACE_MAX="$2"; shift 2 ;;
             --grace-small)  need_value "$key" $#; GRACE_SMALL="$2"; shift 2 ;;
@@ -428,7 +431,7 @@ copy_file() {
     fi
 
     # shellcheck disable=SC2086
-    nice -n 10 dd if="$src" of="$dst" $dd_flags $progress_flag 2> "$ddlog" &
+    nice -n 10 dd if="$src" of="$dst" $dd_flags $progress_flag 2> "$ddlog" >/dev/null &
     ddpid=$!
     CURRENT_PID=$ddpid
 
@@ -436,7 +439,8 @@ copy_file() {
     last_part=0
     WIN_BPS=0
     local -a wt=() wb=()
-    local low=0 win_bps span elapsed_ms abps size_hint
+    local low=0 win_bps span elapsed_ms abps
+    local LAST_PROGRESS=$t0 last_seen=0 now_ms_v idle_s
 
     while kill -0 "$ddpid" 2>/dev/null; do
         sleep "$sample"
@@ -475,6 +479,30 @@ copy_file() {
         elapsed=$((elapsed_ms / 1000))
         [ "$elapsed" -lt 1 ] && elapsed=1
 
+        # 已经读到文件末尾（dd 正在 fsync/关闭）：不再做速度或卡死判定
+        if [ "$size" -gt 0 ] && [ "$curr" -ge "$size" ]; then
+            low=0
+            continue
+        fi
+
+        # 记录最后一次“有字节增长”的时间，用来做独立的卡死判定
+        now_ms_v=$(now_ms)
+        if [ "$curr" -gt "$last_seen" ]; then
+            LAST_PROGRESS=$now_ms_v
+            last_seen=$curr
+        fi
+
+        # 硬卡死：完全没有进度超过 HANG_TIMEOUT 秒，不看速度阈值也不等宽限
+        if [ "$HANG_TIMEOUT" -gt 0 ]; then
+            idle_s=$(( (now_ms_v - LAST_PROGRESS) / 1000 ))
+            if [ "$idle_s" -ge "$HANG_TIMEOUT" ]; then
+                log "    ! 已连续 ${idle_s}s 没有任何进度，判定卡死"
+                kill_pid "$ddpid" 5
+                rc=2
+                break
+            fi
+        fi
+
         # 记录样本，并丢掉统计窗口之外的旧样本（至少保留 2 个）
         wt+=("$elapsed")
         wb+=("$curr")
@@ -504,6 +532,7 @@ copy_file() {
             LAST_BEAT=$now_s
         fi
 
+        # （读取已到末尾的情况在循环开头已处理）
         if [ "$MIN_SPEED_MB" -le 0 ]; then
             low=0
             continue
@@ -691,6 +720,9 @@ sanitize_numbers() {
     [ "$MAX_STALL" -lt 1 ] && MAX_STALL=1
     [ "$MAX_STALL" -gt 100 ] && MAX_STALL=100
 
+    is_uint "$HANG_TIMEOUT" || HANG_TIMEOUT=45
+    [ "$HANG_TIMEOUT" -gt 3600 ] && HANG_TIMEOUT=3600
+
     is_uint "$GRACE_FACTOR" || GRACE_FACTOR=2
     [ "$GRACE_FACTOR" -gt 100 ] && GRACE_FACTOR=100
 
@@ -849,6 +881,9 @@ main() {
         log "宽限规则: ${GRACE_FACTOR} × (文件大小/阈值)，上限 ${GRACE_MAX}s，小文件 ${GRACE_SMALL}s"
     else
         log "速度监控: 已关闭"
+    fi
+    if [ "$HANG_TIMEOUT" -gt 0 ]; then
+        log "卡死判定: 连续 ${HANG_TIMEOUT}s 没有任何进度即跳过（不受宽限影响）"
     fi
     log "失败清单: $FAILED_LIST"
     log "============================================================"
@@ -1077,7 +1112,11 @@ main() {
                     fi
                 else
                     SKIP_N=$((SKIP_N + 1))
-                    reason="速度低于 ${MIN_SPEED_MB}MB/s 或卡死，已跳过"
+                    if [ "$MIN_SPEED_MB" -gt 0 ]; then
+                        reason="速度低于 ${MIN_SPEED_MB}MB/s 或卡死，已跳过"
+                    else
+                        reason="卡死（长时间没有进度），已跳过"
+                    fi
                 fi
                 # 已抢救出的字节也算进“已复制”，报表更真实
                 psz=0

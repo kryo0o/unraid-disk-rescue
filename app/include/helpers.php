@@ -1,25 +1,24 @@
 <?php
 /**
- * diskrescue 插件公共函数
+ * diskrescue 公共函数
  *
- * Unraid 的 .page / .php 都是被 webGUI 直接 include 执行的，本文件只做函数定义，
- * 不产生任何直接输出。页面与接口统一通过 require_once 引入。
+ * 只做函数定义，不产生输出。路径都可用环境变量覆盖，
+ * 容器里由 entrypoint 设置 DR_BASE=/opt/diskrescue、DR_DATA_DIR=/data。
  */
 
 define('DR_PLUGIN', 'diskrescue');
-// 路径都可用环境变量覆盖：插件用默认值，Docker 容器用 /opt 与 /data
-define('DR_BASE', getenv('DR_BASE') ?: '/usr/local/emhttp/plugins/diskrescue');
-define('DR_BOOT', getenv('DR_DATA_DIR') ?: '/boot/config/plugins/diskrescue');
+define('DR_BASE', getenv('DR_BASE') ?: '/opt/diskrescue');
+define('DR_BOOT', getenv('DR_DATA_DIR') ?: '/data');
 define('DR_STATE', DR_BOOT . '/state');
 define('DR_TMP', getenv('DR_TMP') ?: '/tmp/diskrescue');
 define('DR_RUNNING', DR_TMP . '/running');
 define('DR_CFG', DR_BOOT . '/diskrescue.cfg');
 
-/** 静态资源前缀：插件里是 /plugins/diskrescue，容器里是空（同源根路径） */
+/** 静态资源前缀：与站点同根，默认为空 */
 function dr_asset_base() {
     $v = getenv('DR_ASSET_BASE');
     if ($v === false) {
-        return '/plugins/' . DR_PLUGIN;
+        return '';
     }
     return rtrim($v, '/');
 }
@@ -156,6 +155,7 @@ function dr_config() {
         'speed_window'  => 10,
         'check'         => 2,
         'max_stall'     => 1,
+        'hang_timeout'  => 45,
         'grace_factor'  => 2,
         'grace_max'     => 900,
         'grace_small'   => 10,

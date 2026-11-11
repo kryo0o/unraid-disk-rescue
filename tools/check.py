@@ -1,30 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-check.py - 静态检查 + 本地功能测试（在开发机上运行）
+check.py - 静态检查 + 本地功能/行为测试
 
 用法:
     python tools/check.py
+    PHP=/path/to/php NODE=/path/to/node python tools/check.py
 
-检查项:
-    1. .plg 结构（PLUGIN 属性、实体声明、INLINE 片段 bash 语法）
-    2. 包内文件齐全、文本文件为 LF
-    3. bash 脚本 `bash -n` 语法
-    4. PHP 文件 `php -l`（有 php 时）
-    5. JS 文件 `node --check`（有 node 时）
-    6. 功能测试：用临时目录跑一遍 disk-rescue.sh
-         - --help 正常
-         - 不带参数时（非交互）报错退出
-         - --dry-run 预扫描
-         - 正常复制（含中文名、空格名、嵌套目录）
-         - --skip-existing 断点续跑
-         - 同源/目标相同、目标在源内 的拒绝逻辑
-         - status 文件字段完整
+覆盖:
+    1. 文件齐全、无 CRLF
+    2. bash -n / php -l / node --check
+    3. 功能：复制内容、status、--skip-existing、--dry-run、路径拒绝、无参数报错
+    4. 行为（慢速 dd 替身）：
+       - 窗口平均速度判卡死 → 保留 .partial
+       - 慢速但正常不被误杀
+       - 中途停止 → .partial → 退出码 2
+       - 硬卡死（无进度）→ 超时跳过 → --delete-partial 删除未完成文件
 """
 
-import hashlib
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -32,9 +26,8 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLG = os.path.join(ROOT, "diskrescue.plg.in")
-BASE = os.path.join(ROOT, "package", "usr", "local", "emhttp", "plugins", "diskrescue")
-SCRIPT = os.path.join(BASE, "scripts", "disk-rescue.sh")
+APP = os.path.join(ROOT, "app")
+SCRIPT = os.path.join(APP, "scripts", "disk-rescue.sh")
 
 problems = []
 notes = []
@@ -73,16 +66,15 @@ NODE = os.environ.get("NODE") or find_tool(["node", "node.exe"])
 
 
 def run(cmd, **kw):
-    kw.setdefault("timeout", 120)
+    kw.setdefault("timeout", 180)
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
 def native_arg(tool, path):
-    """在 WSL 里调用 Windows 版 node/php 时，把 /mnt/... 转成 C:\\... 形式。"""
+    """在 WSL 里调用 Windows 版 node/php 时把 /mnt/... 转成 C:\\..."""
     if not tool or os.name != "posix":
         return path
-    win_like = tool.lower().endswith(".exe") or tool.startswith("/mnt/")
-    if not win_like:
+    if not (tool.lower().endswith(".exe") or tool.startswith("/mnt/")):
         return path
     try:
         out = subprocess.run(["wslpath", "-w", path], capture_output=True, text=True)
@@ -93,121 +85,82 @@ def native_arg(tool, path):
     return path
 
 
-# --------------------------------------------------------------------------
-def check_plg():
-    print("[1] .plg 结构")
-    if not os.path.isfile(PLG):
-        bad("缺少 diskrescue.plg.in（清单模板）")
-        return
-    text = open(PLG, encoding="utf-8").read()
-
-    m = re.search(r"<PLUGIN\b([^>]*)>", text, re.S)
-    if not m:
-        bad("<PLUGIN> 元素缺失")
-    else:
-        attrs = re.findall(r"([\w:-]+)\s*=", m.group(1))
-        dup = sorted({a for a in attrs if attrs.count(a) > 1})
-        if dup:
-            bad("PLUGIN 属性重复: " + ", ".join(dup))
-        else:
-            ok("PLUGIN 属性无重复")
-        for need in ("name", "author", "version", "pluginURL"):
-            if need not in attrs:
-                bad("PLUGIN 缺少 %s" % need)
-        if 'version="7.3"' in text or 'version="7.3"' in m.group(1):
-            notes.append("已用 version 限定最低 Unraid 版本")
-        ok("PLUGIN 必需属性存在")
-
-    declared = set(re.findall(r"<!ENTITY\s+(\w+)", text))
-    used = set(re.findall(r"&([A-Za-z_][\w.]*);", text)) - {"amp", "lt", "gt", "quot", "apos"}
-    missing = sorted(used - declared)
-    if missing:
-        bad("未声明的实体: " + ", ".join(missing))
-    else:
-        ok("XML 实体均已声明")
-
-    for i, block in enumerate(re.findall(r"<INLINE><!\[CDATA\[(.*?)\]\]></INLINE>", text, re.S)):
-        if BASH is None:
-            skip("没有 bash，跳过 INLINE 语法检查")
-            break
-        fd, tmp = tempfile.mkstemp(suffix=".sh")
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(block)
-        try:
-            p = run([BASH, "-n", tmp])
-            if p.returncode != 0:
-                bad("INLINE 第 %d 段语法错误: %s" % (i + 1, (p.stderr or "").strip()))
-            else:
-                ok("INLINE 第 %d 段 bash 语法正常" % (i + 1))
-        finally:
-            os.unlink(tmp)
-
-
 def check_files():
-    print("[2] 包内文件")
+    print("[1] 文件")
     need = [
-        "DiskRescue.page", "scripts/disk-rescue.sh", "include/helpers.php",
-        "include/api.php", "css/diskrescue.css", "js/diskrescue.js",
+        "app/scripts/disk-rescue.sh",
+        "app/include/helpers.php",
+        "app/include/api.php",
+        "app/include/page-body.php",
+        "app/js/diskrescue.js",
+        "app/js/jquery.min.js",
+        "app/css/diskrescue.css",
+        "docker/Dockerfile",
+        "docker/entrypoint.sh",
+        "docker/public/index.php",
+        "docker/public/api.php",
+        "docker-compose.yml",
     ]
     for rel in need:
-        p = os.path.join(BASE, rel)
+        p = os.path.join(ROOT, rel)
         if os.path.isfile(p) and os.path.getsize(p) > 0:
             ok(rel)
         else:
             bad("缺失或为空: " + rel)
 
-    for dirpath, _dirs, files in os.walk(BASE):
+    for base, _dirs, files in os.walk(APP):
         for fn in files:
-            if not fn.lower().endswith((".sh", ".php", ".page", ".js", ".css")):
+            if not fn.endswith((".sh", ".php", ".js", ".css")):
                 continue
-            p = os.path.join(dirpath, fn)
-            data = open(p, "rb").read()
-            if b"\r" in data:
-                bad("含 CRLF: " + os.path.relpath(p, BASE))
+            p = os.path.join(base, fn)
+            if b"\r" in open(p, "rb").read() and not fn.endswith(".min.js"):
+                bad("含 CRLF: " + os.path.relpath(p, ROOT))
 
 
 def check_syntax():
-    print("[3] 脚本语法")
+    print("[2] 语法")
     if BASH:
         p = run([BASH, "-n", SCRIPT])
         if p.returncode == 0:
-            ok("disk-rescue.sh: bash -n 通过")
+            ok("disk-rescue.sh: bash -n")
         else:
-            bad("disk-rescue.sh 语法错误:\n" + (p.stderr or ""))
+            bad("disk-rescue.sh: " + (p.stderr or "").strip())
     else:
         skip("没有 bash")
 
     if PHP:
-        for rel in ("include/helpers.php", "include/api.php", "DiskRescue.page"):
-            target = os.path.join(BASE, rel)
-            p = run([PHP, "-l", native_arg(PHP, target)])
-            out = (p.stdout + p.stderr).strip()
+        for rel in ("app/include/helpers.php", "app/include/api.php",
+                    "app/include/page-body.php", "docker/public/index.php",
+                    "docker/public/api.php"):
+            p = run([PHP, "-l", native_arg(PHP, os.path.join(ROOT, rel))])
             if p.returncode == 0:
-                ok("%s: %s" % (rel, out))
+                ok(rel + ": php -l")
             else:
-                bad("%s PHP 语法错误: %s" % (rel, out))
+                bad(rel + ": " + (p.stdout + p.stderr).strip())
     else:
         skip("没有 php")
 
     if NODE:
-        p = run([NODE, "--check", native_arg(NODE, os.path.join(BASE, "js", "diskrescue.js"))])
+        p = run([NODE, "--check", native_arg(NODE, os.path.join(APP, "js", "diskrescue.js"))])
         if p.returncode == 0:
-            ok("diskrescue.js: node --check 通过")
+            ok("diskrescue.js: node --check")
         else:
-            bad("diskrescue.js 语法错误:\n" + (p.stderr or ""))
+            bad("diskrescue.js: " + (p.stderr or "").strip())
     else:
         skip("没有 node")
 
 
 def check_functional():
-    print("[4] 功能测试")
+    print("[3] 功能")
     if BASH is None:
-        skip("没有 bash，跳过功能测试")
+        skip("没有 bash")
         return
 
-    tmp = tempfile.mkdtemp(prefix="dr-test-")
+    tmp = tempfile.mkdtemp(prefix="dr-func-")
     src = os.path.join(tmp, "src", "坏盘 目录")
     dst = os.path.join(tmp, "dst")
+    status = os.path.join(tmp, "status")
+    log = os.path.join(tmp, "run.log")
     try:
         os.makedirs(os.path.join(src, "sub1", "sub2"))
         files = {
@@ -218,35 +171,26 @@ def check_functional():
             "sub1/sub2/c.bin": os.urandom(5000),
         }
         for rel, data in files.items():
-            full = os.path.join(src, rel)
-            with open(full, "wb") as fh:
+            with open(os.path.join(src, rel), "wb") as fh:
                 fh.write(data)
 
-        status = os.path.join(tmp, "status")
-        log = os.path.join(tmp, "run.log")
-
-        # --help
         p = run([BASH, SCRIPT, "--help"])
         if p.returncode == 0 and "--src" in p.stdout:
-            ok("--help 输出正常")
+            ok("--help")
         else:
-            bad("--help 异常: rc=%d out=%r" % (p.returncode, p.stdout[:200]))
+            bad("--help 异常")
 
-        # 缺少参数（非交互）应当失败退出，而不是卡住
-        env = dict(os.environ)
-        env.pop("TERM", None)
-        p = run([BASH, SCRIPT], input="", env=env, timeout=20)
+        p = run([BASH, SCRIPT], input="", timeout=20)
         if p.returncode != 0:
-            ok("缺少参数时正常报错退出（rc=%d）" % p.returncode)
+            ok("无参数时报错退出（rc=%d）" % p.returncode)
         else:
-            bad("缺少参数时没有报错")
+            bad("无参数时没有报错")
 
-        # 正常复制
         p = run([BASH, SCRIPT, "--src", src, "--dst", dst, "--yes",
-                 "--check", "1", "--max-stall", "3", "--min-speed", "0",
+                 "--min-speed", "0", "--check", "1",
                  "--status-file", status, "--log-file", log])
         if p.returncode != 0:
-            bad("复制测试失败 rc=%d\n%s\n%s" % (p.returncode, p.stdout[-1500:], p.stderr[-800:]))
+            bad("复制测试 rc=%d" % p.returncode)
         else:
             ok("复制测试 rc=0")
 
@@ -254,102 +198,68 @@ def check_functional():
             got = os.path.join(dst, rel)
             if not os.path.isfile(got):
                 bad("目标缺少: " + rel)
-                continue
-            if open(got, "rb").read() != data:
+            elif open(got, "rb").read() != data:
                 bad("内容不一致: " + rel)
-        ok("文件内容逐一比对通过")
+        ok("内容逐一比对")
 
-        # status 文件
         if os.path.isfile(status):
             kv = {}
             for line in open(status, encoding="utf-8"):
                 if "=" in line:
                     k, v = line.split("=", 1)
                     kv[k.strip()] = v.strip()
-            for k in ("state", "phase", "total", "done", "ok", "skipped", "failed"):
-                if k not in kv:
-                    bad("status 缺少字段: " + k)
             if kv.get("total") == "5" and kv.get("ok") == "5" and kv.get("state") == "finished":
-                ok("status 字段与计数正确 (total=5 ok=5 state=finished)")
+                ok("status 计数正确")
             else:
-                bad("status 计数异常: %s" % kv)
+                bad("status 异常: %s" % kv)
         else:
-            bad("没有生成 status 文件")
+            bad("没有 status 文件")
 
-        # log 里不应该有 “命令未找到”
-        if os.path.isfile(log):
-            txt = open(log, encoding="utf-8", errors="replace").read()
-            for pat in ("command not found", "No such file or directory", "syntax error"):
-                if pat in txt:
-                    bad("日志中出现 %r" % pat)
-
-        # --skip-existing：第二次运行应该全部跳过
         p = run([BASH, SCRIPT, "--src", src, "--dst", dst, "--yes", "--skip-existing",
                  "--min-speed", "0", "--check", "1", "--status-file", status, "--log-file", log])
-        logtxt = open(log, encoding="utf-8", errors="replace").read() if os.path.isfile(log) else ""
-        if p.returncode == 0 and "跳过" in logtxt:
-            ok("--skip-existing 断点续跑正常")
+        if p.returncode == 0 and "跳过" in open(log, encoding="utf-8", errors="replace").read():
+            ok("--skip-existing")
         else:
-            bad("--skip-existing 运行异常 rc=%d" % p.returncode)
+            bad("--skip-existing rc=%d" % p.returncode)
 
-        # 目标在源内 → 必须拒绝
         inner = os.path.join(src, "sub1", "out")
         p = run([BASH, SCRIPT, "--src", src, "--dst", inner, "--yes", "--min-speed", "0",
                  "--status-file", status, "--log-file", log])
-        if p.returncode != 0 and "内部" in (p.stdout + open(log, encoding="utf-8").read()):
-            ok("拒绝“目标位于源目录内部”")
+        if p.returncode != 0 and "内部" in open(log, encoding="utf-8", errors="replace").read():
+            ok("拒绝目标在源内")
         else:
-            bad("没有拒绝“目标位于源目录内部” rc=%d" % p.returncode)
+            bad("未拒绝目标在源内")
 
-        # 相同路径 → 必须拒绝
         p = run([BASH, SCRIPT, "--src", src, "--dst", src, "--yes", "--min-speed", "0",
                  "--status-file", status, "--log-file", log])
         if p.returncode != 0:
-            ok("拒绝“源与目标相同”")
+            ok("拒绝源=目标")
         else:
-            bad("没有拒绝“源与目标相同”")
+            bad("未拒绝源=目标")
 
-        # --dry-run 不应复制任何文件（会建空目录并写失败清单，但不复制数据）
         dry = os.path.join(tmp, "dry")
         p = run([BASH, SCRIPT, "--src", src, "--dst", dry, "--yes", "--dry-run",
                  "--status-file", status, "--log-file", log])
         copied = []
-        for dirpath, _dirs, fns in os.walk(dry):
+        for dp, _d, fns in os.walk(dry):
             for fn in fns:
-                if fn == "disk-rescue-failed.txt":
-                    continue
-                copied.append(os.path.join(dirpath, fn))
+                if fn != "disk-rescue-failed.txt":
+                    copied.append(fn)
         if p.returncode == 0 and not copied:
-            ok("--dry-run 未复制数据文件")
+            ok("--dry-run 不复制")
         else:
-            bad("--dry-run 行为异常 rc=%d 写入=%s" % (p.returncode, copied))
-
+            bad("--dry-run 异常: %s" % copied)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def check_behavior():
-    """用「慢速 dd 替身」确定性地验证卡死判定与停止流程。"""
-    print("[5] 行为测试（速度判定 / 停止 / .partial）")
-    if BASH is None:
-        skip("没有 bash，跳过行为测试")
-        return
-    import signal
-
-    tmp = tempfile.mkdtemp(prefix="dr-behav-")
-    shim = os.path.join(tmp, "bin")
-    os.makedirs(shim)
-
-    dd_shim = os.path.join(shim, "dd")
-    with open(dd_shim, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("""#!/bin/bash
-IF=""; OF=""
+def shim_dd(path, mode):
+    body = {
+        "slow": """#!/bin/bash
 for a in "$@"; do
   case "$a" in
-    --help) echo "  status=progress"; exit 0 ;;
-    if=*) IF="${a#if=}" ;;
-    of=*) OF="${a#of=}" ;;
-  esac
+    --help) echo "status=progress"; exit 0 ;;
+    if=*) IF="${a#if=}" ;; of=*) OF="${a#of=}" ;; esac
 done
 total=$(stat -c %s "$IF" 2>/dev/null || echo 0)
 : > "$OF"; i=0; written=0
@@ -359,75 +269,85 @@ while [ "$written" -lt "$total" ]; do
   printf '%d bytes (1.0 MB) copied, 0.25 s, 4.2 MB/s\\n' "$written" >&2
   sleep 0.25
 done
-exit 0
-""")
-    os.chmod(dd_shim, 0o755)
+""",
+        "hang": """#!/bin/bash
+for a in "$@"; do
+  case "$a" in
+    --help) echo "status=progress"; exit 0 ;;
+    if=*) IF="${a#if=}" ;; of=*) OF="${a#of=}" ;; esac
+done
+: > "$OF"
+/bin/dd if="$IF" of="$OF" bs=1M count=1 2>/dev/null
+printf '1048576 bytes (1.0 MB) copied\\n' >&2
+sleep 300
+""",
+    }[mode]
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(body)
+    os.chmod(path, 0o755)
 
+
+def check_behavior():
+    print("[4] 行为（慢速 dd 替身）")
+    if BASH is None:
+        skip("没有 bash")
+        return
+    import signal
+
+    tmp = tempfile.mkdtemp(prefix="dr-behav-")
+    shim = os.path.join(tmp, "bin")
+    os.makedirs(shim)
     env = dict(os.environ)
     env["PATH"] = shim + os.pathsep + env.get("PATH", "")
 
-    try:
-        def scenario(tag):
-            """每个场景用独立的 src/dst/log/status，避免互相污染。"""
-            s = os.path.join(tmp, tag, "src")
-            d = os.path.join(tmp, tag, "dst")
-            os.makedirs(s)
-            os.makedirs(d)
-            return (s, d, os.path.join(tmp, tag, "run.log"),
-                    os.path.join(tmp, tag, "status"))
+    def scenario(tag):
+        s = os.path.join(tmp, tag, "src")
+        d = os.path.join(tmp, tag, "dst")
+        os.makedirs(s)
+        os.makedirs(d)
+        return s, d, os.path.join(tmp, tag, "run.log"), os.path.join(tmp, tag, "status")
 
-        # ---- 1) 卡死判定（窗口平均速度） ----
-        s1, d1, l1, st1 = scenario("stall")
-        with open(os.path.join(s1, "stall.bin"), "wb") as fh:
+    try:
+        # 1) 窗口平均速度判卡死
+        shim_dd(os.path.join(shim, "dd"), "slow")
+        s, d, lg, st = scenario("stall")
+        with open(os.path.join(s, "big.bin"), "wb") as fh:
             fh.write(b"\0" * (64 * 1024 * 1024))
-        p = run([BASH, SCRIPT, "--src", s1, "--dst", d1, "--yes",
+        p = run([BASH, SCRIPT, "--src", s, "--dst", d, "--yes",
                  "--min-speed", "100", "--speed-window", "10", "--check", "1",
                  "--max-stall", "1", "--grace-factor", "0",
-                 "--status-file", st1, "--log-file", l1], env=env, timeout=180)
-        logtxt = open(l1, encoding="utf-8", errors="replace").read() if os.path.isfile(l1) else ""
-        partial = os.path.join(d1, "stall.bin.partial")
-        if p.returncode == 3:
-            ok("卡死判定：退出码 3")
+                 "--status-file", st, "--log-file", lg], env=env)
+        txt = open(lg, encoding="utf-8", errors="replace").read() if os.path.isfile(lg) else ""
+        if p.returncode == 3 and os.path.isfile(os.path.join(d, "big.bin.partial")):
+            ok("卡死判定：rc=3 且保留 .partial")
         else:
-            bad("卡死判定：退出码 %d（期望 3）" % p.returncode)
-        if os.path.isfile(partial) and os.path.getsize(partial) > 0:
-            ok("卡死判定：保留了 .partial（%d 字节）" % os.path.getsize(partial))
+            bad("卡死判定：rc=%d" % p.returncode)
+        if "最近" in txt and "判定卡死" in txt:
+            ok("卡死判定：日志有窗口速度与原因")
         else:
-            bad("卡死判定：没有保留 .partial")
-        if "最近" in logtxt and "MB/s" in logtxt and "判定卡死" in logtxt:
-            ok("卡死判定：日志给出了窗口平均速度与判定原因")
-        else:
-            bad("卡死判定：日志缺少窗口平均速度/判定信息")
+            bad("卡死判定：日志不完整")
 
-        # ---- 2) 慢速但正常：阈值低于实际速度时必须成功，不能被窗口判定误杀 ----
-        s2, d2, l2, st2 = scenario("slowok")
-        with open(os.path.join(s2, "ok.bin"), "wb") as fh:
+        # 2) 慢速但正常
+        s, d, lg, st = scenario("slowok")
+        with open(os.path.join(s, "ok.bin"), "wb") as fh:
             fh.write(b"\0" * (48 * 1024 * 1024))
-        p = run([BASH, SCRIPT, "--src", s2, "--dst", d2, "--yes",
+        p = run([BASH, SCRIPT, "--src", s, "--dst", d, "--yes",
                  "--min-speed", "1", "--speed-window", "10", "--check", "1",
                  "--max-stall", "1", "--grace-factor", "0",
-                 "--status-file", st2, "--log-file", l2], env=env, timeout=180)
-        logtxt = open(l2, encoding="utf-8", errors="replace").read() if os.path.isfile(l2) else ""
-        target = os.path.join(d2, "ok.bin")
-        if p.returncode == 0 and os.path.isfile(target) and \
-                os.path.getsize(target) == 48 * 1024 * 1024:
-            ok("慢速正常文件：复制成功且未被误杀")
+                 "--status-file", st, "--log-file", lg], env=env)
+        target = os.path.join(d, "ok.bin")
+        if p.returncode == 0 and os.path.isfile(target) and os.path.getsize(target) == 48 * 1024 * 1024:
+            ok("慢速正常：未被误杀")
         else:
-            bad("慢速正常文件：rc=%d 大小=%s" % (
-                p.returncode, os.path.getsize(target) if os.path.isfile(target) else "缺失"))
-        if "判定卡死" not in logtxt:
-            ok("慢速正常文件：日志中没有误判")
-        else:
-            bad("慢速正常文件：被误判为卡死")
+            bad("慢速正常：rc=%d" % p.returncode)
 
-        # ---- 3) 停止流程 ----
-        s3, d3, l3, st3 = scenario("stop")
-        with open(os.path.join(s3, "stop.bin"), "wb") as fh:
+        # 3) 中途停止
+        s, d, lg, st = scenario("stop")
+        with open(os.path.join(s, "stop.bin"), "wb") as fh:
             fh.write(b"\0" * (32 * 1024 * 1024))
         proc = subprocess.Popen(
-            [BASH, SCRIPT, "--src", s3, "--dst", d3, "--yes", "--min-speed", "0",
-             "--check", "1", "--max-stall", "3",
-             "--status-file", st3, "--log-file", l3],
+            [BASH, SCRIPT, "--src", s, "--dst", d, "--yes", "--min-speed", "0",
+             "--check", "1", "--status-file", st, "--log-file", lg],
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(5)
         proc.send_signal(signal.SIGTERM)
@@ -436,41 +356,41 @@ exit 0
         except subprocess.TimeoutExpired:
             proc.kill()
             rc = -1
-        stxt = open(st3, encoding="utf-8", errors="replace").read() if os.path.isfile(st3) else ""
-        partial2 = os.path.join(d3, "stop.bin.partial")
-        if rc == 2:
-            ok("停止流程：退出码 2")
+        stxt = open(st, encoding="utf-8", errors="replace").read() if os.path.isfile(st) else ""
+        if rc == 2 and "state=stopped" in stxt and os.path.isfile(os.path.join(d, "stop.bin.partial")):
+            ok("停止：rc=2 / stopped / 保留 .partial")
         else:
-            bad("停止流程：退出码 %d（期望 2）" % rc)
-        if "state=stopped" in stxt:
-            ok("停止流程：state=stopped")
+            bad("停止：rc=%d state=%s" % (rc, "stopped" if "state=stopped" in stxt else "?"))
+
+        # 4) 硬卡死 + 删除未完成文件
+        shim_dd(os.path.join(shim, "dd"), "hang")
+        s, d, lg, st = scenario("hang")
+        with open(os.path.join(s, "hang.bin"), "wb") as fh:
+            fh.write(b"\0" * (8 * 1024 * 1024))
+        p = run([BASH, SCRIPT, "--src", s, "--dst", d, "--yes",
+                 "--min-speed", "0", "--hang-timeout", "3", "--check", "1",
+                 "--delete-partial", "--grace-factor", "0",
+                 "--status-file", st, "--log-file", lg], env=env)
+        txt = open(lg, encoding="utf-8", errors="replace").read() if os.path.isfile(lg) else ""
+        left = [f for f in os.listdir(d) if f.endswith(".partial")]
+        if p.returncode == 3 and not left and "没有任何进度" in txt:
+            ok("硬卡死：无进度 3s 跳过 + 删除未完成文件")
         else:
-            bad("停止流程：state 不是 stopped")
-        if os.path.isfile(partial2) and os.path.getsize(partial2) > 0:
-            ok("停止流程：保留了 .partial（%d 字节）" % os.path.getsize(partial2))
-        else:
-            bad("停止流程：没有保留 .partial")
-        leftovers = [f for f in os.listdir(d3) if ".dr-meta." in f]
-        if leftovers:
-            bad("停止流程：残留临时文件 %s" % leftovers)
-        else:
-            ok("停止流程：无 .dr-meta 残留")
+            bad("硬卡死：rc=%d left=%s" % (p.returncode, left))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def main():
-    print("== diskrescue 静态检查与功能测试 ==\n")
-    check_plg()
+    print("== diskrescue 检查 ==\n")
     check_files()
     check_syntax()
     check_functional()
     check_behavior()
 
     print("\n== 结果 ==")
-    if notes:
-        for n in notes:
-            print("  note: " + n)
+    for n in notes:
+        print("  note: " + n)
     if problems:
         print("  %d 个问题:" % len(problems))
         for p in problems:

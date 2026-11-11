@@ -169,6 +169,7 @@ if ($action === 'start') {
     $window   = isset($_POST['speed_window']) ? trim((string)$_POST['speed_window']) : '10';
     $check    = isset($_POST['check']) ? trim((string)$_POST['check']) : '2';
     $stall    = isset($_POST['max_stall']) ? trim((string)$_POST['max_stall']) : '1';
+    $hang     = isset($_POST['hang_timeout']) ? trim((string)$_POST['hang_timeout']) : '45';
     $gFactor  = isset($_POST['grace_factor']) ? trim((string)$_POST['grace_factor']) : '2';
     $gMax     = isset($_POST['grace_max']) ? trim((string)$_POST['grace_max']) : '900';
     $gSmall   = isset($_POST['grace_small']) ? trim((string)$_POST['grace_small']) : '10';
@@ -186,6 +187,9 @@ if ($action === 'start') {
     }
     if (!preg_match('/^\d{1,3}$/', $stall) || (int)$stall < 1 || (int)$stall > 100) {
         dr_json(['ok' => false, 'error' => '连续次数必须是 1~100']);
+    }
+    if (!preg_match('/^\d{1,4}$/', $hang) || (int)$hang > 3600) {
+        dr_json(['ok' => false, 'error' => '卡死超时必须是 0~3600 秒（0 = 关闭）']);
     }
     if (!preg_match('/^\d{1,3}$/', $gFactor) || (int)$gFactor > 100) {
         dr_json(['ok' => false, 'error' => '宽限倍数必须是 0~100（0 = 不按大小放宽）']);
@@ -236,12 +240,14 @@ if ($action === 'start') {
     $gFactor  = (int)$gFactor;
     $gMax     = (int)$gMax;
     $gSmall   = (int)$gSmall;
+    $hang     = (int)$hang;
 
     dr_save_config([
         'min_speed'     => $minSpeed,
         'speed_window'  => $window,
         'check'         => $check,
         'max_stall'     => $stall,
+        'hang_timeout'  => $hang,
         'grace_factor'  => $gFactor,
         'grace_max'     => $gMax,
         'grace_small'   => $gSmall,
@@ -270,6 +276,7 @@ if ($action === 'start') {
         '--speed-window=' . $window,
         '--check=' . $check,
         '--max-stall=' . $stall,
+        '--hang-timeout=' . $hang,
         '--grace-factor=' . $gFactor,
         '--grace-max=' . $gMax,
         '--grace-small=' . $gSmall,
@@ -334,6 +341,7 @@ if ($action === 'start') {
         'min_speed' => $minSpeed,
         'check'     => $check,
         'max_stall' => $stall,
+        'hang_timeout' => $hang,
         'dry_run'   => $dryRun,
         'started'   => time(),
     ];
@@ -385,6 +393,7 @@ if ($action === 'start') {
             'speed_window'  => $window,
             'check'         => $check,
             'max_stall'     => $stall,
+            'hang_timeout'  => $hang,
             'grace_factor'  => $gFactor,
             'grace_max'     => $gMax,
             'grace_small'   => $gSmall,

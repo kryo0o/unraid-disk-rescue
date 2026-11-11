@@ -2,8 +2,5 @@
 .gitignore
 .github
 .tmp
-dist
-icons
 tools
 *.md
-!package/usr/local/emhttp/plugins/diskrescue/*.md

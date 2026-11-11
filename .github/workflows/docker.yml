@@ -23,14 +23,13 @@ jobs:
       - name: PHP 语法
         run: |
           set -e
-          find package \( -name '*.php' -o -name '*.page' \) | while read -r f; do
+          find app docker -name '*.php' | while read -r f; do
             php -l "$f"
           done
       - name: Shell 语法
         run: |
           set -e
-          bash -n package/usr/local/emhttp/plugins/diskrescue/scripts/disk-rescue.sh
-          bash -n tools/install-local.sh
+          bash -n app/scripts/disk-rescue.sh
           sh -n docker/entrypoint.sh
 
   smoke:

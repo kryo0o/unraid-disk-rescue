@@ -1,7 +1,0 @@
-Menu="Tools"
-Title="坏盘数据抢救"
----
-<?php
-/* Unraid 插件入口：webGUI 会把本页内容套进 DefaultPageLayout。
- * 页面主体在 include/page-body.php，Docker 容器复用同一份。 */
-require_once __DIR__ . '/include/page-body.php';

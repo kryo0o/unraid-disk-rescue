@@ -179,7 +179,7 @@
     $start.prop('disabled', on);
     $stop.prop('disabled', !on);
     $('#dr-src, #dr-dst, #dr-min-speed, #dr-speed-window, #dr-check, #dr-max-stall, ' +
-      '#dr-grace-factor, #dr-grace-max, #dr-grace-small').prop('disabled', on);
+      '#dr-hang-timeout, #dr-grace-factor, #dr-grace-max, #dr-grace-small').prop('disabled', on);
     $form.find('input[type=checkbox]').prop('disabled', on);
     $('#dr-clear, #dr-clean-partial').prop('disabled', on);
     $runningTip.toggle(!!on);
@@ -358,6 +358,8 @@
     if (isNaN(c) || c < 1 || c > 60) return '采样间隔必须在 1~60 秒之间';
     var st = parseInt(d.max_stall, 10);
     if (isNaN(st) || st < 1 || st > 100) return '连续判定次数必须在 1~100 之间';
+    var ht = parseInt(d.hang_timeout, 10);
+    if (isNaN(ht) || ht < 0 || ht > 3600) return '卡死超时必须在 0~3600 秒之间';
     var gf = parseInt(d.grace_factor, 10);
     if (isNaN(gf) || gf < 0 || gf > 100) return '宽限倍数必须在 0~100 之间';
     var gm = parseInt(d.grace_max, 10);
