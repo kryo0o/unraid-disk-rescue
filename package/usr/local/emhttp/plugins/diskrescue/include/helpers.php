@@ -161,6 +161,7 @@ function dr_config() {
         'grace_small'   => 10,
         'skip_existing' => 0,
         'sync'          => 1,
+        'delete_partial' => 0,
         'find_timeout'  => 120,
         'src'           => '',
         'dst'           => '',

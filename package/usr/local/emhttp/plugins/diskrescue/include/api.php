@@ -198,6 +198,7 @@ if ($action === 'start') {
     }
 
     $skipExisting = (isset($_POST['skip_existing']) && (string)$_POST['skip_existing'] === '1') ? 1 : 0;
+    $delPartial   = (isset($_POST['delete_partial']) && (string)$_POST['delete_partial'] === '1') ? 1 : 0;
     $dryRun = (isset($_POST['dry_run']) && (string)$_POST['dry_run'] === '1') ? 1 : 0;
     $force = (isset($_POST['force']) && (string)$_POST['force'] === '1') ? 1 : 0;
 
@@ -246,6 +247,7 @@ if ($action === 'start') {
         'grace_small'   => $gSmall,
         'skip_existing' => $skipExisting,
         'sync'          => $sync,
+        'delete_partial' => $delPartial,
         'find_timeout'  => $findTo,
         'src'           => $src,
         'dst'           => $dst,
@@ -278,6 +280,11 @@ if ($action === 'start') {
     ];
     if ($skipExisting === 1) {
         $args[] = '--skip-existing';
+    }
+    if ($delPartial === 1) {
+        $args[] = '--delete-partial';
+    } else {
+        $args[] = '--keep-partial';
     }
     if ($dryRun === 1) {
         $args[] = '--dry-run';
@@ -383,6 +390,7 @@ if ($action === 'start') {
             'grace_small'   => $gSmall,
             'skip_existing' => $skipExisting,
             'sync'          => $sync,
+            'delete_partial' => $delPartial,
             'dry_run'       => $dryRun,
         ],
     ]);
@@ -466,6 +474,48 @@ if ($action === 'info') {
         'cfg'   => $cfg,
         'st'    => $st,
     ]);
+}
+
+// ------------------------------------------------------------ clean_partial ----
+// 删除目标目录下本工具产生的未完成文件（*.partial 与 .dr-meta.*）
+if ($action === 'clean_partial') {
+    if (!dr_csrf_ok()) {
+        dr_json(['ok' => false, 'error' => '会话校验失败，请刷新页面后重试'], 403);
+    }
+    $run = dr_run_info();
+    if ($run['alive']) {
+        dr_json(['ok' => false, 'error' => '任务运行中，请先停止']);
+    }
+    list($dir, $err) = dr_check_path(isset($_POST['dir']) ? $_POST['dir'] : '', true);
+    if ($err !== null) {
+        dr_json(['ok' => false, 'error' => '目标目录: ' . $err]);
+    }
+
+    $removed = 0;
+    $bytes = 0;
+    try {
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+        foreach ($it as $f) {
+            if (!$f->isFile()) {
+                continue;
+            }
+            $n = $f->getFilename();
+            if (substr($n, -8) !== '.partial' && strpos($n, '.dr-meta.') === false) {
+                continue;
+            }
+            $bytes += (int)$f->getSize();
+            if (@unlink($f->getPathname())) {
+                $removed++;
+            }
+        }
+    } catch (Throwable $e) {
+        // 目录里有坏文件/权限问题时忽略，返回已删除的数量
+    }
+
+    dr_json(['ok' => true, 'removed' => $removed, 'bytes' => $bytes]);
 }
 
 // ----------------------------------------------------------------- clear ----

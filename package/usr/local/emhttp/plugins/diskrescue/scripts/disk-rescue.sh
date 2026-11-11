@@ -23,6 +23,7 @@
 #    --status-file PATH    状态文件（key=value），插件据此显示进度
 #    --failed-list PATH    失败清单文件，默认写到目标目录
 #    --skip-existing       目标已存在且大小一致的文件直接跳过
+#    --delete-partial      不保留未完成文件：跳过/出错/中断时直接删除，不留 .partial
 #    --dry-run             只扫描不复制
 #    --sync                复制时使用 conv=fsync（默认开启，速度更真实）
 #    --no-sync             关闭 conv=fsync（更快，但页缓存会掩盖真实写入速度）
@@ -63,6 +64,7 @@ FAILED_LIST=""
 SKIP_EXISTING=0
 DRY_RUN=0
 USE_SYNC=1
+DELETE_PARTIAL=0
 FORCE=0
 ASSUME_YES=0
 INTERACTIVE=0
@@ -273,6 +275,8 @@ parse_args() {
             --status-file)  need_value "$key" $#; STATUS_FILE="$2"; shift 2 ;;
             --failed-list)  need_value "$key" $#; FAILED_LIST="$2"; shift 2 ;;
             --skip-existing) SKIP_EXISTING=1; shift ;;
+            --delete-partial) DELETE_PARTIAL=1; shift ;;
+            --keep-partial)   DELETE_PARTIAL=0; shift ;;
             --dry-run)      DRY_RUN=1; shift ;;
             --sync)         USE_SYNC=1; shift ;;
             --no-sync)      USE_SYNC=0; shift ;;
@@ -518,7 +522,11 @@ copy_file() {
             low=$((low + 1))
             log "    ! 最近 ${span}s 平均 $(human "$win_bps")/s，低于阈值 ${MIN_SPEED_MB}MB/s（第 ${low}/${MAX_STALL} 次）"
             if [ "$low" -ge "$MAX_STALL" ]; then
-                log "    ! 判定卡死，放弃该文件（已读数据会保留为 .partial）"
+                if [ "$DELETE_PARTIAL" = "1" ]; then
+                    log "    ! 判定卡死，放弃该文件（未完成文件将被删除）"
+                else
+                    log "    ! 判定卡死，放弃该文件（已读数据会保留为 .partial）"
+                fi
                 kill_pid "$ddpid" 5
                 rc=2
                 break
@@ -550,8 +558,11 @@ copy_file() {
     rm -f "$ddlog" 2>/dev/null
 
     if [ "$rc" = "2" ] || [ "$STOP_SIGNAL" = "1" ]; then
-        # 保留已抢救出的部分数据，便于之后用 ddrescue 续读
-        if [ -s "$dst" ]; then
+        if [ "$DELETE_PARTIAL" = "1" ]; then
+            rm -f "$dst" 2>/dev/null
+            log "    ↳ 已删除未完成文件（--delete-partial）"
+        elif [ -s "$dst" ]; then
+            # 保留已抢救出的部分数据，便于之后用 ddrescue 续读
             PARTIAL_FILE="$dst.partial"
             mv -f "$dst" "$PARTIAL_FILE" 2>/dev/null || rm -f "$dst"
             log "    ↳ 已保留部分数据: $PARTIAL_FILE（$(human "$(file_size "$PARTIAL_FILE")")）"
@@ -562,7 +573,10 @@ copy_file() {
     fi
 
     if [ "$rc" -ne 0 ]; then
-        if [ -s "$dst" ]; then
+        if [ "$DELETE_PARTIAL" = "1" ]; then
+            rm -f "$dst" 2>/dev/null
+            log "    ↳ dd 读取中断，已删除未完成文件（--delete-partial）"
+        elif [ -s "$dst" ]; then
             PARTIAL_FILE="$dst.partial"
             mv -f "$dst" "$PARTIAL_FILE" 2>/dev/null || rm -f "$dst"
             log "    ↳ dd 读取中断，已保留部分数据: $PARTIAL_FILE（$(human "$(file_size "$PARTIAL_FILE")")）"
@@ -1056,7 +1070,11 @@ main() {
                 ;;
             2)
                 if [ "$STOP_SIGNAL" = "1" ]; then
-                    reason="用户停止（已保留 .partial）"
+                    if [ "$DELETE_PARTIAL" = "1" ]; then
+                        reason="用户停止（已删除未完成文件）"
+                    else
+                        reason="用户停止（已保留 .partial）"
+                    fi
                 else
                     SKIP_N=$((SKIP_N + 1))
                     reason="速度低于 ${MIN_SPEED_MB}MB/s 或卡死，已跳过"
@@ -1107,7 +1125,11 @@ main() {
         STATE_DETAIL="有文件未成功"
         log "⚠️ 注意：有文件未能拷贝成功！"
         log "失败/跳过清单: $FAILED_LIST"
-        log "对于 .partial 文件，可尝试: ddrescue -r3 '<源文件>' '<.partial 文件>'"
+        if [ "$DELETE_PARTIAL" = "1" ]; then
+            log "未完成文件已删除（可在页面勾选/取消“保留未完成文件”改变行为）"
+        else
+            log "对于 .partial 文件，可尝试: ddrescue -r3 '<源文件>' '<.partial 文件>'"
+        fi
     else
         STATE="finished"
         STATE_DETAIL="全部成功"

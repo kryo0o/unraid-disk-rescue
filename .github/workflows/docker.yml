@@ -110,6 +110,21 @@ jobs:
           grep -q '"state":"finished"' /tmp/status2.json
           echo "start/copy ok"
 
+      - name: 清理 .partial 接口
+        run: |
+          set -e
+          echo x > /tmp/mnt/disk4/dst/leftover.partial
+          echo x > /tmp/mnt/disk4/dst/some.bin.dr-meta.123
+          curl -sS -X POST \
+            --data-urlencode 'action=clean_partial' \
+            --data-urlencode 'dir=/mnt/disk4/dst' \
+            http://127.0.0.1:18080/api.php | tee /tmp/clean.json
+          grep -q '"removed":2' /tmp/clean.json
+          test ! -f /tmp/mnt/disk4/dst/leftover.partial
+          test ! -f /tmp/mnt/disk4/dst/some.bin.dr-meta.123
+          test -f /tmp/mnt/disk4/dst/a.txt    # 正常文件不能被误删
+          echo "clean_partial ok"
+
       - name: 失败时输出容器日志
         if: failure()
         run: |

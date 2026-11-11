@@ -174,6 +174,7 @@ cp dist/diskrescue-local.plg      /boot/config/plugins/diskrescue.plg
 | 宽限上限 | 900 秒 | 超大文件的封顶 |
 | 小文件宽限 | 10 秒 | < 4MiB 固定使用该值 |
 | 跳过已存在 | 开 | 目标中大小一致的文件直接跳过（断点续跑） |
+| 保留未完成文件 | 开 | 关闭后，跳过/出错/中断的文件**直接删除**，不留 `.partial` |
 | 强制落盘 | 开 | `dd conv=fsync`，速度更真实但略慢 |
 
 页面上的参数与**源/目标路径都会被记住**，保存在 `/boot/config/plugins/diskrescue/diskrescue.cfg`（容器里是 `/data`）。
@@ -234,6 +235,20 @@ cp dist/diskrescue-local.plg      /boot/config/plugins/diskrescue.plg
 **大文件很慢却一直不跳过**
 
 宽限期还没结束（见[参数说明](#参数说明)）。把宽限倍数调到 0 或调小上限。
+
+**不想要那些没拷完的 `.partial`**
+
+两种做法：
+
+- 页面上勾选「不保留未完成文件」，之后跳过/出错/中断的文件会直接删除
+- 清理已有的：页面点「清理 .partial」，或命令行
+
+```bash
+find /mnt/disk4/xxx -type f -name '*.partial' -delete
+find /mnt/disk4/xxx -type f -name '*.dr-meta.*' -delete
+```
+
+失败清单 `disk-rescue-failed.txt` 会保留，方便之后按清单重试。
 
 ---
 

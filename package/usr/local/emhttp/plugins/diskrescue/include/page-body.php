@@ -53,6 +53,7 @@ $jsV    = @filemtime(__DIR__ . '/../js/diskrescue.js') ?: time();
     </div>
     <div class="dr-head-actions">
       <button type="button" class="dr-btn dr-btn-ghost" id="dr-reload" title="重新加载本页面">刷新</button>
+      <button type="button" class="dr-btn dr-btn-ghost" id="dr-clean-partial" <?=$running ? 'disabled' : ''?>>清理 .partial</button>
       <button type="button" class="dr-btn dr-btn-ghost" id="dr-clear" <?=$running ? 'disabled' : ''?>>清空状态</button>
     </div>
   </div>
@@ -148,6 +149,8 @@ $jsV    = @filemtime(__DIR__ . '/../js/diskrescue.js') ?: time();
       <div class="dr-checks">
         <label class="dr-check"><input type="checkbox" name="skip_existing" value="1" <?=!empty($cfg['skip_existing']) ? 'checked' : ''?> <?=$running ? 'disabled' : ''?>>
           跳过目标中已存在且大小一致的文件（断点续跑推荐）</label>
+        <label class="dr-check"><input type="checkbox" name="delete_partial" value="1" <?=!empty($cfg['delete_partial']) ? 'checked' : ''?> <?=$running ? 'disabled' : ''?>>
+          不保留未完成文件：跳过/出错/中断时直接删除，不留 <code>.partial</code></label>
         <label class="dr-check"><input type="checkbox" name="sync" value="1" <?=!empty($cfg['sync']) ? 'checked' : ''?> <?=$running ? 'disabled' : ''?>>
           复制时强制落盘（conv=fsync，速度略慢但更真实）</label>
         <label class="dr-check"><input type="checkbox" name="dry_run" value="1" <?=$running ? 'disabled' : ''?>>

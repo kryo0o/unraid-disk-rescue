@@ -181,7 +181,7 @@
     $('#dr-src, #dr-dst, #dr-min-speed, #dr-speed-window, #dr-check, #dr-max-stall, ' +
       '#dr-grace-factor, #dr-grace-max, #dr-grace-small').prop('disabled', on);
     $form.find('input[type=checkbox]').prop('disabled', on);
-    $('#dr-clear').prop('disabled', on);
+    $('#dr-clear, #dr-clean-partial').prop('disabled', on);
     $runningTip.toggle(!!on);
   }
 
@@ -410,6 +410,17 @@
       }
       $note.text(r.msg || '已停止');
       pollOnce(true);
+    });
+  });
+
+  // 删除目标目录下本工具产生的未完成文件
+  $('#dr-clean-partial').on('click', function () {
+    var dir = ($('#dr-dst').val() || '').trim();
+    if (!dir) { $note.text('请先填写目标文件夹'); return; }
+    if (!window.confirm('删除目标目录下所有未完成文件（*.partial）？\n\n' + dir + '\n\n此操作不可恢复。')) return;
+    post({ action: 'clean_partial', dir: dir }, function (e, r) {
+      if (e || !r.ok) { $note.text(e || r.error || '清理失败'); return; }
+      $note.text('已删除 ' + r.removed + ' 个未完成文件（' + human(r.bytes) + '）');
     });
   });
 
