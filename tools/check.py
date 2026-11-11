@@ -32,7 +32,7 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLG = os.path.join(ROOT, "diskrescue.plg")
+PLG = os.path.join(ROOT, "diskrescue.plg.in")
 BASE = os.path.join(ROOT, "package", "usr", "local", "emhttp", "plugins", "diskrescue")
 SCRIPT = os.path.join(BASE, "scripts", "disk-rescue.sh")
 
@@ -97,7 +97,7 @@ def native_arg(tool, path):
 def check_plg():
     print("[1] .plg 结构")
     if not os.path.isfile(PLG):
-        bad("缺少 diskrescue.plg")
+        bad("缺少 diskrescue.plg.in（清单模板）")
         return
     text = open(PLG, encoding="utf-8").read()
 

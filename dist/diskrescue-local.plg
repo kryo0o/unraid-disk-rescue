@@ -3,7 +3,7 @@
 <!ENTITY name      "diskrescue">
 <!ENTITY author    "diskrescue">
 <!ENTITY version   "2026.11.12">
-<!ENTITY gitURL    "https://raw.githubusercontent.com/your-github-user/unraid-disk-rescue/main">
+<!ENTITY gitURL    "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main">
 <!ENTITY pluginURL "file:///boot/config/plugins/diskrescue.plg">
 <!ENTITY pkgURL    "file:///boot/config/plugins/diskrescue/package.txz">
 ]>
@@ -11,8 +11,8 @@
         author="&author;"
         version="&version;"
         pluginURL="&pluginURL;"
-        support="https://forums.unraid.net/topic/000000-disk-rescue/"
-        project="https://github.com/your-github-user/unraid-disk-rescue"
+        support="https://github.com/kryo0o/unraid-disk-rescue/issues"
+        project="https://github.com/kryo0o/unraid-disk-rescue"
         icon="/plugins/diskrescue/icons/diskrescue.png"
         api="1">
 <CHANGES><![CDATA[
@@ -76,7 +76,7 @@ SMART 报错、复制时卡死等场景。</p>
 <!-- ============================ 安装包 ============================ -->
 <FILE Name="/boot/config/plugins/&name;/package.txz">
 <URL><![CDATA[&pkgURL;]]></URL>
-<MD5>ea1cb577908c8a87fd683376ac093a25</MD5>
+<MD5>288b62727fdf42e459b95bc8b9613420</MD5>
 </FILE>
 
 <!-- ============================ 安装 ============================ -->

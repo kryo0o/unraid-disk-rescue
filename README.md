@@ -120,16 +120,31 @@ file:///boot/config/plugins/diskrescue.plg
 > 和同目录下的 `package.txz`。所以**不要**只手工解压 tar 而不放 .plg，
 > 那样重启后插件会消失。
 
-### 3.4 发布到 GitHub（让插件管理器能在线安装）
+### 3.4 已发布地址
 
-1. 新建仓库，把本目录内容推上去。
-2. `build.sh --base-url https://raw.githubusercontent.com/<你>/<仓库>/main`
-3. 把 `dist/` 下的 `.txz`、`.plg`、`icons/` 提交到仓库。
-4. 在 Unraid 的 *Plugins -> Install Plugin* 里填：
-   `https://raw.githubusercontent.com/<你>/<仓库>/main/dist/diskrescue.plg`
+仓库：<https://github.com/kryo0o/unraid-disk-rescue>
 
-> `.plg` 里的 MD5 是构建时算好写死的；`.txz` 更新后一定要重新跑构建，
-> 否则 MD5 校验会失败。
+安装地址（Unraid → Plugins → Install Plugin，直接粘贴）：
+
+```
+https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main/dist/diskrescue.plg
+```
+
+> 用 jsDelivr 而不是 `raw.githubusercontent.com`，因为后者在国内经常无法访问；
+> jsDelivr 会自己去 GitHub 抓取，国内可以正常下载。
+
+自己重新发布：
+
+```bash
+bash build.sh --base-url https://cdn.jsdelivr.net/gh/<你>/<仓库>@main
+# 或
+python build.py --base-url https://cdn.jsdelivr.net/gh/<你>/<仓库>@main
+```
+
+然后提交 `dist/` 与 `icons/`。`.plg` 里的 MD5 是构建时写死的，`.txz` 更新后必须重跑构建。
+
+> 注意：仓库根目录的 `diskrescue.plg.in` 是**模板**（含 `__MD5__` 占位符），
+> 不是可安装文件；安装请用 `dist/diskrescue.plg`。
 
 ---
 
@@ -192,7 +207,7 @@ file:///boot/config/plugins/diskrescue.plg
 
 ```
 unraid-disk-rescue/
-├── diskrescue.plg                  # 插件清单模板（__MD5__ / __PKGURL__ 由构建替换）
+├── diskrescue.plg.in               # 插件清单模板（__MD5__ / __PKGURL__ 由构建替换）
 ├── build.sh                        # Unraid 上的 shell 构建脚本
 ├── build.py                        # 跨平台 Python 构建脚本
 ├── tools/

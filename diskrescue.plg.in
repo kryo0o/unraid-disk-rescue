@@ -3,7 +3,7 @@
 <!ENTITY name      "diskrescue">
 <!ENTITY author    "diskrescue">
 <!ENTITY version   "2026.11.12">
-<!ENTITY gitURL    "https://raw.githubusercontent.com/your-github-user/unraid-disk-rescue/main">
+<!ENTITY gitURL    "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main">
 <!ENTITY pluginURL "&gitURL;/diskrescue.plg">
 <!ENTITY pkgURL    "&gitURL;/dist/diskrescue-2026.11.12.txz">
 ]>
@@ -11,8 +11,8 @@
         author="&author;"
         version="&version;"
         pluginURL="&pluginURL;"
-        support="https://forums.unraid.net/topic/000000-disk-rescue/"
-        project="https://github.com/your-github-user/unraid-disk-rescue"
+        support="https://github.com/kryo0o/unraid-disk-rescue/issues"
+        project="https://github.com/kryo0o/unraid-disk-rescue"
         icon="&gitURL;/icons/diskrescue.png"
         api="1">
 <CHANGES><![CDATA[

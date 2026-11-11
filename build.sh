@@ -14,11 +14,12 @@
 set -eu
 
 cd "$(dirname "$0")"
-BASE_URL="https://raw.githubusercontent.com/your-github-user/unraid-disk-rescue/main"
+BASE_URL="https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main"
 DO_INSTALL=0
 VERSION="2026.11.12"
 PLUGIN="diskrescue"
 PKG="${PLUGIN}-${VERSION}.txz"
+TEMPLATE="${PLUGIN}.plg.in"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -84,8 +85,9 @@ PKG_URL="${BASE_URL%/}/dist/${PKG}"
 
 sed -e "s#__MD5__#${MD5}#g" \
     -e "s#__PKGURL__#${PKG_URL}#g" \
-    -e "s#https://raw.githubusercontent.com/your-github-user/unraid-disk-rescue/main#${BASE_URL%/}#g" \
-    "${PLUGIN}.plg" > "dist/${PLUGIN}.plg"
+    -e "s#&gitURL;/${PLUGIN}.plg#${PKG_URL%/*}/${PLUGIN}.plg#g" \
+    -e "s#https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main#${BASE_URL%/}#g" \
+    "$TEMPLATE" > "dist/${PLUGIN}.plg"
 
 # 离线安装用清单：清单/安装包都走本地固定位置（/boot/config/plugins/<name>.plg）
 sed -e "s#__MD5__#${MD5}#g" \
@@ -93,7 +95,7 @@ sed -e "s#__MD5__#${MD5}#g" \
     -e "s#&gitURL;/dist/${PKG}#file:///boot/config/plugins/${PLUGIN}/package.txz#g" \
     -e "s#&gitURL;/icons/${PLUGIN}.png#/plugins/${PLUGIN}/icons/${PLUGIN}.png#g" \
     -e "s#&gitURL;/${PLUGIN}.plg#file:///boot/config/plugins/${PLUGIN}.plg#g" \
-    "${PLUGIN}.plg" > "dist/${PLUGIN}-local.plg"
+    "$TEMPLATE" > "dist/${PLUGIN}-local.plg"
 
 echo "安装包: dist/${PKG}  ($(du -h "dist/${PKG}" | cut -f1))"
 echo "MD5   : ${MD5}"

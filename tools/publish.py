@@ -34,7 +34,7 @@ PLUGIN = "diskrescue"
 
 # 上传哪些文件（相对仓库根目录）
 INCLUDE_DIRS = ["package", "dist", "tools", "icons"]
-INCLUDE_FILES = ["README.md", "build.py", "build.sh", "diskrescue.plg", "package/usr"]
+INCLUDE_FILES = ["README.md", "build.py", "build.sh", "diskrescue.plg.in", "package/usr"]
 SKIP_SUFFIX = (".pyc",)
 SKIP_NAMES = {".DS_Store", "Thumbs.db"}
 

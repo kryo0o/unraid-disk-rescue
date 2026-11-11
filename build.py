@@ -29,12 +29,12 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PKG_SRC = os.path.join(ROOT, "package")
 DIST = os.path.join(ROOT, "dist")
-PLG_TEMPLATE = os.path.join(ROOT, "diskrescue.plg")
+PLG_TEMPLATE = os.path.join(ROOT, "diskrescue.plg.in")
 
 VERSION = "2026.11.12"
 PLUGIN = "diskrescue"
 PKG_NAME = "%s-%s.txz" % (PLUGIN, VERSION)
-DEFAULT_BASE = "https://raw.githubusercontent.com/your-github-user/unraid-disk-rescue/main"
+DEFAULT_BASE = "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main"
 
 TEXT_EXT = (".sh", ".php", ".page", ".js", ".css", ".md", ".txt", ".plg", ".cfg")
 EXECUTABLES = {
@@ -412,8 +412,11 @@ def build_plg(package_path, base_url, local=False):
     text = text.replace("__MD5__", md5)
     text = text.replace("__PKGURL__", pkg_url)
     if not local:
+        # 清单自身的地址要指向 dist/ 里的成品，而不是仓库根目录的模板
+        text = re.sub(r'<!ENTITY\s+pluginURL\s+"[^"]*">',
+                      '<!ENTITY pluginURL "%s/dist/%s.plg">' % (base_url, PLUGIN), text)
         text = text.replace(
-            "https://raw.githubusercontent.com/your-github-user/unraid-disk-rescue/main",
+            "https://cdn.jsdelivr.net/gh/kryo0o/unraid-disk-rescue@main",
             base_url)
     else:
         # 离线包：清单/图标/安装包都指向本机固定位置

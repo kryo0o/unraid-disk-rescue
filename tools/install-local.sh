@@ -21,7 +21,7 @@ DEST="/usr/local/emhttp/plugins/${PLUGIN}"
 BOOT="/boot/config/plugins"
 PKGDIR="${BOOT}/${PLUGIN}"
 PLG="${BOOT}/${PLUGIN}.plg"
-TEMPLATE="$ROOT/${PLUGIN}.plg"
+TEMPLATE="$ROOT/${PLUGIN}.plg.in"
 
 if [ "${1:-}" = "--uninstall" ]; then
     echo "卸载 ${PLUGIN} ..."
